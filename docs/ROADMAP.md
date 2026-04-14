@@ -536,3 +536,103 @@ If we hear "users want a dashboard" and panic-ship a hardcoded one, we create ma
 - `ui-kilo`'s output (parallel agent, not yet merged as of this writing)
 
 ---
+
+## Decision frameworks
+
+### Framework 1: Auto-MCP vs. "just use the CLI from an agent"
+
+The user's exact question: *"lets ship core then get auto-mcp per integration, but lets also consider we might just want skills or cli and have agents run things."*
+
+This is a real tension. Both paths reach the same goal — "my agent can use Chorus integrations to do work." Different tradeoffs. Here's the framework and a concrete recommendation.
+
+#### The two options
+
+**Option A — Auto-MCP.** Each integration's operations become first-class MCP tools. Agents see them with typed schemas, descriptions, examples. Native in Claude Desktop, Cursor, Zed.
+
+**Option B — CLI + agent.** Agents invoke `chorus run my-workflow --input '{...}'` via subprocess. No MCP server. Agent knows how to call the CLI because it reads the CLI docs.
+
+#### When each wins
+
+| Factor | MCP wins | CLI+agent wins |
+|---|---|---|
+| **First impression** | MCP (tools appear in the agent's native palette) | CLI (needs a prompt + example) |
+| **Schema fidelity** | MCP (Zod → JSONSchema → MCP tool) | CLI (string args, agent parses) |
+| **Discovery** | MCP (agent lists available tools) | CLI (agent must know to run `chorus list-integrations`) |
+| **Credential injection** | MCP (server-side, transparent) | CLI (env vars, agent handles) |
+| **Maintenance burden** | MCP (a new schema layer per integration) | CLI (nothing new per integration) |
+| **Streaming results** | MCP (tool can return incremental data) | CLI (stdout, agent parses line-by-line) |
+| **Works with non-MCP agents** | No | Yes (any agent that can run shell) |
+| **Cross-machine usage** | MCP (stdio or remote via SSE) | CLI (SSH + env vars) |
+| **Agents that already use CLI well** | Tied | CLI |
+
+#### The recommendation
+
+**Ship both. Not as a fallback — as a strategy.**
+
+Here's the reasoning. MCP is the *premium UX* for MCP-compatible clients. But MCP isn't universal. A user running an open-source local agent, or a user inside a Jupyter notebook with a custom LLM harness, or a user whose agent is just `bash + claude -p`, doesn't speak MCP.
+
+The CLI must be excellent regardless. Auto-MCP is a *superset* — it wraps the CLI's capability in an MCP surface. Every MCP tool is implemented as *"run this CLI command under the hood."* That way:
+
+1. Both surfaces exist. Users pick.
+2. Maintenance is shared — one underlying implementation, two surfaces.
+3. If we later decide MCP was the wrong bet (say, OpenAI's tool-use spec dominates and MCP fades), the CLI is still excellent. No sunk cost.
+4. If MCP wins (likely), the CLI is still useful for scripting and automation that isn't agent-driven.
+
+#### Concrete implementation guidance
+
+When shipping auto-MCP (section 1):
+- The MCP tool `slack-send.send-message` internally runs `chorus run --integration slack-send --operation send-message --input '{...}'`.
+- The Zod schema drives both the MCP JSONSchema and the CLI's `--input` validation.
+- `chorus mcp` starts an MCP server that is literally a thin wrapper over the CLI, inheriting credentials from the same profile.
+
+This is the "skills+CLI" path the user asked about, structurally realized, with MCP as a first-class surface on top. Not either/or. Both/and.
+
+#### When to deprecate the CLI (never)
+
+Even if auto-MCP succeeds wildly, the CLI stays. It's documentation-friendly, reproducible, scriptable, and gives us an audit trail ("the agent ran this exact command, logged in `~/.chorus/history.log`"). MCP without an underlying CLI is an opaque black box. Refuse to go there.
+
+---
+
+### Framework 2: When to migrate to Postgres
+
+Section 2 already covers the triggers. This framework gives the decision logic *inside* the trigger.
+
+#### The decision tree
+
+```
+User's runtime sees one of the scale triggers fire.
+  ↓
+Is the user's workload READ-heavy or WRITE-heavy?
+  ↓
+  READ-heavy  →  Try SQLite read replicas (litestream, rqlite) FIRST.
+                 Only migrate to Postgres if read replicas don't solve it.
+  ↓
+  WRITE-heavy →  Migrate to Postgres.
+                 Don't try to tune SQLite past 500 writes/sec.
+```
+
+#### The metric thresholds (concrete)
+
+Run `chorus status --verbose`. Look for:
+
+- **`run_rate_per_sec`** — if sustained > 50, migrate soon (Postgres).
+- **`db_write_lag_p99_ms`** — if > 200ms sustained, migrate (Postgres).
+- **`concurrent_runs_active`** — if > 30 sustained, migrate soon (Postgres).
+- **`db_file_size_mb`** — if > 5000 (5 GB), consider migrating for ops reasons (backup/restore cost).
+- **`queue_claim_contention_count`** — new metric (add in v1.1); if non-zero consistently, migrate.
+
+None of these are hard cutoffs. They're smoke signals. The only hard cutoff: **if the user is running multi-node**, migrate to Postgres immediately. SQLite's single-writer constraint is non-negotiable.
+
+#### What "migration" actually looks like
+
+1. User runs `chorus status` and sees a warn on one of the thresholds.
+2. Documentation links them to a "scaling" page.
+3. They decide to migrate. They spin up Postgres (docker, RDS, whatever).
+4. `chorus migrate --to postgres --url postgres://...` runs (15-30 min for a 2GB SQLite).
+5. `chorus switch-backend postgres` flips config.
+6. `chorus run` now uses Postgres.
+7. SQLite file is preserved as backup. User deletes when confident.
+
+**Rollback is not supported.** A user who finds Postgres annoying goes back to a fresh SQLite + re-imports workflows manually. We don't pretend to support downgrades because the failure modes of a half-migrated state are worse than re-import.
+
+---
