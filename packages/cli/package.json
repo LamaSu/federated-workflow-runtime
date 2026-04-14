@@ -1,0 +1,29 @@
+{
+  "name": "@chorus/cli",
+  "version": "0.1.0",
+  "description": "Chorus CLI — chorus init, chorus run, chorus report",
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "chorus": "./dist/cli.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup src/cli.ts --format esm --dts --clean",
+    "test": "vitest run",
+    "cli": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "@chorus/core": "*",
+    "@chorus/registry": "*",
+    "@chorus/reporter": "*",
+    "@chorus/repair-agent": "*",
+    "@chorus/runtime": "*",
+    "commander": "^12.1.0",
+    "picocolors": "^1.1.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0"
+  }
+}

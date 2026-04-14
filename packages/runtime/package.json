@@ -1,0 +1,25 @@
+{
+  "name": "@chorus/runtime",
+  "version": "0.1.0",
+  "description": "Workflow execution engine: cron, webhooks, retries, SQLite state",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean",
+    "test": "vitest run",
+    "dev": "tsx watch src/server.ts"
+  },
+  "dependencies": {
+    "@chorus/core": "*",
+    "better-sqlite3": "^11.3.0",
+    "cron-parser": "^4.9.0",
+    "fastify": "^5.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "tsx": "^4.19.0"
+  }
+}

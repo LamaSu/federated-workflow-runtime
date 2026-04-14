@@ -126,3 +126,67 @@ Key facts:
 Design takeaway: Activepieces' isolated-engine + WebSocket RPC is MUCH safer than n8n's "nodes run in worker process" model. A malicious piece can't mutate worker state. Chorus should adopt per-execution isolation — but WebSocket RPC is complex; we might use HTTP loopback or a simpler IPC.
 
 ---
+
+## Activepieces Pieces Registry - WebSearch + docs synthesis
+Sources:
+- https://www.activepieces.com/docs/developers/building-pieces/create-trigger
+- https://www.mintlify.com/activepieces/activepieces/pieces/create-action
+- https://github.com/activepieces/activepieces
+- https://dev.activepieces.com/quickstart.html
+
+Key facts:
+- **~440 pieces**, 60% community-contributed, MIT license.
+- **Each piece is an independent npm package** implementing the framework API. Hot-reload in dev.
+- **Two primitives**: Trigger (event source) and Action (step).
+- **Trigger techniques**: polling or webhook — explicit field, not inferred.
+- **Actions are pure functions**: inputs (props) → logic → outputs. Framework enforces this contract.
+- **Engine operations** (6 types): Extract Piece Metadata, Execute Step, Execute Flow, Execute Property, Execute Trigger Hook, Execute Auth Validation. These are the only RPCs sandbox-engine supports.
+- **Engine APIs to pieces**: Storage (k/v), File service (local/DB), Fetch project metadata.
+- **MCP bonus**: contributed pieces auto-appear as MCP servers for Claude/Cursor/Windsurf. Big for agent-era positioning.
+- **Verification**: community pieces go through PR review in the monorepo. There's no separate NPM-based registry — it's all in the `packages/pieces` directory of the monorepo.
+
+Design takeaway: The "pieces-as-npm-packages" model is cleaner than n8n's mixed bag. Chorus should adopt this + also mirror the automatic MCP-surfacing for every integration (huge force multiplier for AI agents).
+
+---
+
+## Windmill Execution Model - WebSearch synthesis
+Sources:
+- https://github.com/windmill-labs/windmill
+- https://www.windmill.dev/blog/launch-week-1/fastest-workflow-engine
+- https://github.com/windmill-labs/windmill/blob/main/backend/windmill-worker/src/worker.rs
+- https://www.windmill.dev/docs/intro
+
+Key facts:
+- **Rust backend**, single binary, runs as either API server or worker (mode = env var).
+- **Postgres-as-queue**: no Redis, no Kafka. Uses `UPDATE ... SKIP LOCKED` to atomically claim jobs. This is the Windmill superpower.
+- **ACID state**: every state transition is one transacted SQL statement. Crash-safety is free.
+- **Pipelined ack**: completed-job processing runs in a tokio background task via channel, so workers don't wait for ack before pulling the next job. Massive throughput win.
+- **Stateless everything**: API and workers only talk to Postgres, never to each other. Horizontal scale is trivial.
+- **Sandboxing**: nsjail for filesystem/resource isolation + PID namespace so a script can't see worker process memory. Enabled by default.
+- **Runtimes**: Deno, Python, Go, Bash, TypeScript (via Bun), PowerShell, SQL, Rust, Ansible, PHP. Multi-language from day one — that's the killer feature.
+- **Benchmark claim**: 13x faster than Airflow. Validated via dedicated "fastest workflow engine" blog post.
+- **Once a job starts**, zero overhead vs running the script directly — the runner is transparent.
+
+## Windmill Flow Definition (OpenFlow) - WebSearch synthesis
+Sources:
+- https://www.windmill.dev/docs/openflow
+- https://github.com/windmill-labs/windmill/blob/main/openflow.openapi.yaml
+- https://www.windmill.dev/docs/flows/architecture
+- https://www.windmill.dev/docs/advanced/cli/flow
+
+Key facts:
+- **OpenFlow**: Windmill-designed open standard, published as an OpenAPI/Swagger spec. JSON-serializable. Explicitly positioned as a standard others could adopt.
+- **FlowValue shape**:
+  - `input` (spec, like script inputs)
+  - `modules[]` (ordered steps)
+  - `failure_module` (error handler)
+  - `preprocessor` (optional pre-step)
+- **Step types**: script, subflow, loop (for-each), branch (if/switch).
+- **DAG representation**: state machine rendered as DAG in UI. Steps run in sequence; branches fork explicitly.
+- **File layout**: Flow = folder with `flow.yaml` + inline script files. Inline scripts stored as separate files so editors give syntax highlighting and git diffs are readable.
+- **CLI support**: `wmill flow push`, `wmill flow pull` for GitOps.
+- **Trade-off**: higher learning curve than n8n's drag-drop; reward is GitOps-friendly, diffable, forkable flows.
+
+Design takeaway: Postgres-as-queue is the single biggest architectural insight. Nothing about Redis/Bull is actually better — Postgres gives you stronger ACID with SKIP LOCKED. Chorus should consider this seriously. Also: an "OpenFlow"-like public spec for Chorus flows lets third parties build editors, validators, and runners without touching the core.
+
+---

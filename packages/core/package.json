@@ -1,0 +1,27 @@
+{
+  "name": "@chorus/core",
+  "version": "0.1.0",
+  "description": "Shared types, schemas, and utilities for Chorus",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./schemas": {
+      "import": "./dist/schemas.js",
+      "types": "./dist/schemas.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup src/index.ts src/schemas.ts --format esm --dts --clean",
+    "test": "vitest run",
+    "dev": "tsup src/index.ts src/schemas.ts --format esm --dts --watch"
+  },
+  "dependencies": {
+    "zod": "^3.23.0"
+  }
+}

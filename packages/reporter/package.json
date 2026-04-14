@@ -1,0 +1,17 @@
+{
+  "name": "@chorus/reporter",
+  "version": "0.1.0",
+  "description": "Failure reporter — PII redaction, signature extraction, registry submission",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@chorus/core": "*",
+    "zod": "^3.23.0"
+  }
+}
