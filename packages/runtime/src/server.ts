@@ -9,6 +9,7 @@ import { CronScheduler } from "./triggers/cron.js";
 import { WebhookRegistry } from "./triggers/webhook.js";
 import { ManualTrigger } from "./triggers/manual.js";
 import { OAuthRefresher } from "./oauth.js";
+import { registerApiRoutes } from "./api/index.js";
 
 /**
  * Fastify server composition per ARCHITECTURE §4.
@@ -40,6 +41,12 @@ export interface CreateServerOptions {
   listen?: { port: number; host?: string };
   /** Max body size in bytes (default 1 MB per §4.2). */
   bodyLimitBytes?: number;
+  /**
+   * Bearer token required on /api/* requests. When omitted/empty, the API is
+   * accessible without auth — callers MUST bind to 127.0.0.1.
+   * Defaults to `process.env.CHORUS_API_TOKEN` if that env var is set.
+   */
+  apiToken?: string | null;
 }
 
 export interface ChorusServer {
@@ -75,6 +82,15 @@ export function createServer(opts: CreateServerOptions): ChorusServer {
 
   // Webhooks attach on the shared app instance.
   webhookRegistry.installRoutes(app);
+
+  // Read-only JSON API for agent-built dashboards (see ./api).
+  const apiToken =
+    opts.apiToken !== undefined
+      ? opts.apiToken
+      : process.env.CHORUS_API_TOKEN && process.env.CHORUS_API_TOKEN.length > 0
+        ? process.env.CHORUS_API_TOKEN
+        : null;
+  registerApiRoutes(app, db, { apiToken });
 
   // Health & introspection routes -------------------------------------------
   app.get("/health", async () => ({

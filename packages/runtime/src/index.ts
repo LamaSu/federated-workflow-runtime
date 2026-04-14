@@ -91,3 +91,31 @@ export {
 } from "./oauth.js";
 
 export { createServer, type ChorusServer, type CreateServerOptions } from "./server.js";
+
+export {
+  API_VERSION,
+  CHORUS_API_MEDIA_TYPE,
+  buildManifest,
+  registerApiRoutes,
+  WorkflowSummarySchema,
+  WorkflowDetailSchema,
+  RunSummarySchema,
+  RunDetailSchema,
+  NodeResultSummarySchema,
+  ErrorSignatureSummarySchema,
+  PatchSummarySchema,
+  PatchDetailSchema,
+  IntegrationSummarySchema,
+  type ApiManifest,
+  type ManifestEndpoint,
+  type WorkflowSummary,
+  type WorkflowDetail,
+  type RunSummary,
+  type RunDetail,
+  type NodeResultSummary,
+  type ErrorSignatureSummary,
+  type PatchSummary,
+  type PatchDetail,
+  type IntegrationSummary,
+  type RegisterApiOptions,
+} from "./api/index.js";
