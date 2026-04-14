@@ -96,18 +96,15 @@ export async function proposePatch(
   // eslint-disable-next-line no-constant-condition
   while (true) {
     try {
+      // NOTE: Prompt caching (cache_control on system blocks) is a beta feature.
+      // When the SDK supports it on the stable surface, switch `system` to:
+      //   [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }]
+      // so repeated repairs for the same signature reuse the system prompt.
+      // For now we pass the plain string (no caching).
       const response = await client.messages.create({
         model,
         max_tokens: maxTokens,
-        system: [
-          // Static portion — cache-eligible. Vendor docs & integration source are static
-          // between repairs for the same signature, so we cache them up front.
-          {
-            type: "text",
-            text: SYSTEM_PROMPT,
-            cache_control: { type: "ephemeral" },
-          },
-        ] as unknown as string, // Anthropic SDK accepts blocks as system via beta; cast for compat
+        system: SYSTEM_PROMPT,
         messages: [
           {
             role: "user",

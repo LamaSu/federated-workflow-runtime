@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, sep } from "node:path";
+import { join } from "node:path";
 import type { Cassette, ValidationResult } from "./types.js";
 
 export interface ApplyOptions {
@@ -290,4 +290,3 @@ function runCollectStdin(
   });
 }
 
-export { sep as pathSep };
