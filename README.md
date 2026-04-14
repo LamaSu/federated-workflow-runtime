@@ -77,6 +77,10 @@ More integrations are added as community patches via the registry.
 
 Early. See `docs/ARCHITECTURE.md` for the full design.
 
+## Running the federation side
+
+The client-side packages in `packages/*` are half the story. Operators who want to host a patch registry (org-private or public) should start at [`federation/RUNBOOK.md`](federation/RUNBOOK.md) — it covers the registry repo template, GitHub Actions workflows, CDN revocation-list tooling, and the 5-minute incident playbook.
+
 ## Quickstart
 
 See `QUICKSTART.md`.
