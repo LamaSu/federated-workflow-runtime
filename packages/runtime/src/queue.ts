@@ -84,10 +84,7 @@ export class RunQueue {
 
     const txn = this.db.transaction((): RunRow | null => {
       const row = this.db
-        .prepare<
-          [string, string, string],
-          RunRow
-        >(
+        .prepare<[string, string], RunRow>(
           `SELECT * FROM runs
             WHERE (status = 'pending' OR (status = 'running' AND visibility_until IS NOT NULL AND visibility_until <= ?))
               AND (next_wakeup IS NULL OR next_wakeup <= ?)

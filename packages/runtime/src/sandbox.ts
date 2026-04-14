@@ -1,5 +1,6 @@
 import { fork, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 /**
@@ -84,8 +85,19 @@ export type ChildMsg =
 export function resolveWorkerPath(): string {
   const here = dirname(fileURLToPath(import.meta.url));
   // Worker is a .cjs file (plain CommonJS, no transpile) so Node loads it as
-  // CommonJS regardless of the package's `"type": "module"`.
-  return resolve(here, "sandbox-worker.cjs");
+  // CommonJS regardless of the package's `"type": "module"`. When running
+  // from source (vitest/tsx) the file is alongside sandbox.ts; when running
+  // from a published build, the dist file lives in dist/, so we look at the
+  // co-located path first and fall back to the sibling src/ path.
+  const candidates = [
+    resolve(here, "sandbox-worker.cjs"),
+    resolve(here, "..", "src", "sandbox-worker.cjs"),
+  ];
+  for (const c of candidates) {
+    if (existsSync(c)) return c;
+  }
+  // Return the first candidate anyway so the fork() error message is clear.
+  return candidates[0] ?? resolve(here, "sandbox-worker.cjs");
 }
 
 export async function runIsolated<T = unknown>(
