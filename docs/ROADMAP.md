@@ -636,3 +636,68 @@ None of these are hard cutoffs. They're smoke signals. The only hard cutoff: **i
 **Rollback is not supported.** A user who finds Postgres annoying goes back to a fresh SQLite + re-imports workflows manually. We don't pretend to support downgrades because the failure modes of a half-migrated state are worse than re-import.
 
 ---
+
+## Out-of-scope for v1.x (deferred to v2 or beyond)
+
+These are things that could plausibly be on the v1.x roadmap but are *deliberately not here*. Listed so a future session doesn't wonder why.
+
+1. **Hosted Chorus cloud.** Inherited from `ARCHITECTURE.md` §1.4. We do not host anything. The public patch registry is the only centralized thing we run. Users self-host everything else.
+
+2. **Drag-drop visual workflow builder.** Killed per §7 of this document. Agents generate flows from prompts now; drag-drop is a 2018 UX that doesn't fit the 2026 agent era.
+
+3. **Turing-complete flow expression language.** Windmill's advanced JSONnet, zapier's Code by Zapier, n8n's expressions — all fine within their scope, but Chorus flows stay declarative TypeScript/JSON. `ARCHITECTURE.md` §11.4.
+
+4. **Self-hosted LLMs for repair agent.** Claude is the repair backend. If Anthropic pricing shifts drastically or a genuinely comparable local model appears, revisit. Until then, heterogeneity of LLM backends is complexity we don't need. `ARCHITECTURE.md` §11.4.
+
+5. **Cryptographic PGP Web of Trust.** Scout-bravo's research concluded OIDC + reputation is sufficient for the trust model we need. PGP is UX-toxic for non-developers. `ARCHITECTURE.md` §11.4.
+
+6. **Kubernetes-native deployment (operator, CRDs, etc.).** Chorus is a single binary + SQLite or Postgres. K8s is an option for ops teams who want it, but we don't ship operators or Helm charts. `ARCHITECTURE.md` §11.4.
+
+7. **CRIU-based process checkpointing.** Trigger.dev does this; it's Linux-specific and conflicts with our cross-platform priority. `ARCHITECTURE.md` §11.4.
+
+8. **Multi-tenant registry.** Public registry is one namespace. Enterprises who want private namespaces run their own fork of the registry server. The "federated registry topology" open question in `ARCHITECTURE.md` §12 is a v2+ question.
+
+9. **Workflow marketplace / paid integrations.** No. Every integration is open-source. The patch registry is free. Monetization path, if any, is support contracts or hosted infrastructure — not gated integrations. Not roadmap material because it's against the fundamental positioning.
+
+10. **Non-MCP agent frameworks natively supported.** LangChain, CrewAI, AutoGen — they can call the CLI (or a REST adapter over it). We don't ship framework-specific SDKs. The CLI + JSON API surface is enough.
+
+---
+
+## How to update this doc
+
+### When a trigger fires
+
+1. Find the section (e.g., §1 auto-MCP).
+2. Update the section with a dated note: `**2026-09-12:** Trigger fired — 12 users asked in Discord. Starting work.`
+3. Change the at-a-glance table entry's "Build now vs. wait?" to "Building."
+4. Create a GitHub issue tracking the work.
+5. When complete, mark the section as "Shipped in v1.X" and move its detail to `CHANGELOG.md`.
+
+### When priorities shift
+
+The at-a-glance table's priority numbers (1-6) are advisory, not law. If a real-world signal makes §3 (sandbox) urgent (say, a major security incident), bump it up and document why.
+
+Add a "Revision log" bullet at the bottom of the modified section: `**Priority bumped 2026-07-01:** security incident CVE-2026-1234; previously rank 5.`
+
+### When an item becomes obsolete
+
+Delete it. Don't leave cruft. But **record the deletion** in the `CHANGELOG.md` with rationale. Future sessions should be able to answer "why isn't X in the roadmap?" by reading the changelog.
+
+### When a new item appears
+
+Section 0 — "Scope change." At the top of this document, log any new roadmap items since the original 7. Format:
+
+```
+**2026-06-15 — Added item 8: multi-region registry replication.**
+Trigger: enterprise asked for geo-local reads. Priority 4. Effort: 2 weeks.
+```
+
+Never silently change the 7-item structure; the roadmap is a covenant with future sessions and with the user.
+
+### When a section changes a referenced `ARCHITECTURE.md` line
+
+Edit `ARCHITECTURE.md` in the same commit. Roadmap is the plan; architecture is the truth. They must be synchronized.
+
+---
+
+*End of roadmap. Next review: when the first of the seven triggers fires, or 90 days from the last update, whichever comes first. Signed by roadmap-lima, session 2, 2026-04-14.*
