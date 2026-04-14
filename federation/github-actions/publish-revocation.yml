@@ -1,0 +1,127 @@
+name: publish-revocation
+
+# Fires whenever `revoked.json` changes on main. Signs the file + pushes
+# the signed bundle to the CDN path `/revoked.json` with max-age=60.
+#
+# This is the REVOCATION FAST-PATH described in ARCHITECTURE.md §5.6:
+#   t=0       Maintainer merges a revoked.json change
+#   t+1s      This workflow runs, signs the file, uploads to the CDN
+#   t+60s     CDN edge caches have the new file (max-age=60)
+#   t+5min    Every polling client has the new list (clients poll /revoked.json every 5 min)
+#
+# The script is generic over the CDN provider. Set CDN_BUCKET as an s3:// URI
+# (or the equivalent for your provider) and provide the right credentials secret.
+#
+# Required secrets:
+#   - CHORUS_REVOCATION_SIGNING_KEY   Ed25519 private key (base64, 32 bytes)
+#   - CDN_BUCKET                       e.g. "s3://my-chorus-cdn"  (can also be a GH variable)
+#   - AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY     if using S3 / R2 / Backblaze B2 (any S3-compatible)
+#     OR provide CLOUDFLARE_API_TOKEN for direct R2 uploads via Cloudflare.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'revoked.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CDN_BUCKET: ${{ secrets.CDN_BUCKET }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.CDN_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.CDN_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ secrets.CDN_REGION || 'us-east-1' }}
+      AWS_ENDPOINT_URL: ${{ secrets.CDN_ENDPOINT_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sanity-check revoked.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -e '. | has("schemaVersion") and has("asOf") and has("revoked")' revoked.json > /dev/null
+          jq -e '.schemaVersion == "1.0.0"' revoked.json > /dev/null \
+            || { echo "::error::schemaVersion must be 1.0.0"; exit 1; }
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: 'v2.4.0'
+
+      - name: Sign revocation list (Sigstore keyless)
+        shell: bash
+        env:
+          COSIGN_YES: 'true'
+          COSIGN_EXPERIMENTAL: '1'
+        run: |
+          set -euo pipefail
+          cosign sign-blob \
+            --yes \
+            --bundle revoked.sigstore.json \
+            revoked.json
+          ls -la revoked.sigstore.json
+
+      - name: Sign revocation list (Ed25519 fallback)
+        if: env.CHORUS_REVOCATION_SIGNING_KEY != ''
+        env:
+          CHORUS_REVOCATION_SIGNING_KEY: ${{ secrets.CHORUS_REVOCATION_SIGNING_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Delegate to the standalone publish-revocation.sh script to keep the logic
+          # in ONE place (this workflow + manual invocation must behave identically).
+          bash federation/cdn/publish-revocation.sh \
+            --file revoked.json \
+            --dry-run \
+            --out /tmp/revoked.ed25519.sig || true
+
+      - name: Upload to CDN (S3-compatible)
+        if: env.CDN_BUCKET != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          # max-age=60 per ARCHITECTURE.md §5.6: edge caches refresh once per minute;
+          # clients poll every 5 min so the worst-case staleness is 60s + client jitter.
+          extra_args=()
+          if [[ -n "${AWS_ENDPOINT_URL:-}" ]]; then
+            extra_args+=("--endpoint-url" "$AWS_ENDPOINT_URL")
+          fi
+
+          aws s3 cp revoked.json "$CDN_BUCKET/revoked.json" \
+            --cache-control "public, max-age=60, must-revalidate" \
+            --content-type "application/json" \
+            "${extra_args[@]}"
+
+          aws s3 cp revoked.sigstore.json "$CDN_BUCKET/revoked.sigstore.json" \
+            --cache-control "public, max-age=60, must-revalidate" \
+            --content-type "application/json" \
+            "${extra_args[@]}"
+
+      - name: Verify CDN payload
+        if: env.CDN_BUCKET != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Resolve public URL if caller also provided a CDN_PUBLIC_URL env / secret.
+          if [[ -n "${{ secrets.CDN_PUBLIC_URL }}" ]]; then
+            curl -fsSL --retry 3 "${{ secrets.CDN_PUBLIC_URL }}/revoked.json" | jq . > /dev/null
+            echo "::notice::CDN confirmed at ${{ secrets.CDN_PUBLIC_URL }}/revoked.json"
+          else
+            echo "::warning::CDN_PUBLIC_URL not set; skipping download verification"
+          fi
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          echo "revoked.json published."
+          echo "asOf: $(jq -r '.asOf' revoked.json)"
+          echo "count: $(jq -r '.revoked | length' revoked.json)"

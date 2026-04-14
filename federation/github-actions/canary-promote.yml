@@ -1,0 +1,185 @@
+name: canary-promote
+
+# Hourly cron that advances patches through the canary ladder.
+#
+# For each patch in `patches/**/*.json` that is NOT in `fleet` or `revoked`:
+#   1. Look up the stage-entry timestamp from metadata.advancedAt[<currentStage>].
+#   2. If the dwell time for the current stage has elapsed AND no revocation
+#      entry exists for this patch AND no abort signal from abort-on-spike,
+#      advance to the next stage.
+#   3. Write an updated manifest + commit to `main` with message
+#      "canary-promote: <patch-id> -> <next-stage>".
+#
+# Logic mirrors `packages/registry/src/canary.ts:advanceStage`. We recompute here
+# from the manifest only; error-rate metrics are collected by abort-on-spike.yml
+# and may set the patch to revoked out-of-band (we respect revoked.json as ground truth).
+
+on:
+  schedule:
+    # Every hour at :07 to stagger with abort-on-spike (:15 / :30 / :45 / :00).
+    - cron: '7 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Read revocation list
+        id: revoked
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f revoked.json ]]; then
+            jq -c '[.revoked[].patchId]' revoked.json > /tmp/revoked-ids.json
+          else
+            echo '[]' > /tmp/revoked-ids.json
+          fi
+          echo "  revoked ids: $(cat /tmp/revoked-ids.json)"
+
+      - name: Compute stage advances
+        id: compute
+        shell: bash
+        run: |
+          set -euo pipefail
+          #
+          # Stage ladder (mirrors canary.ts DEFAULT_LADDER):
+          #   proposed              → static-passed  (0h  dwell, advanced by Reporter CI, not here)
+          #   static-passed         → sandbox-passed (0h,  advanced by Reporter CI)
+          #   sandbox-passed        → diff-passed    (0h,  advanced by Reporter CI)
+          #   diff-passed           → canary-1       (0h)
+          #   canary-1              → canary-10      (4h)
+          #   canary-10             → canary-100     (24h)
+          #   canary-100            → fleet          (24h)
+          #   fleet  / revoked      → terminal
+          #
+          declare -A NEXT=( \
+            ["proposed"]="static-passed" \
+            ["static-passed"]="sandbox-passed" \
+            ["sandbox-passed"]="diff-passed" \
+            ["diff-passed"]="canary-1" \
+            ["canary-1"]="canary-10" \
+            ["canary-10"]="canary-100" \
+            ["canary-100"]="fleet" \
+          )
+          declare -A DWELL_HOURS=( \
+            ["proposed"]="0" \
+            ["static-passed"]="0" \
+            ["sandbox-passed"]="0" \
+            ["diff-passed"]="0" \
+            ["canary-1"]="4" \
+            ["canary-10"]="24" \
+            ["canary-100"]="24" \
+          )
+
+          now_epoch=$(date -u +%s)
+          echo "now=$now_epoch"
+
+          : > /tmp/advances.txt
+          while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
+            id=$(jq -r '.metadata.id' "$f")
+            stage=$(jq -r '.metadata.canaryStage' "$f")
+
+            # Terminal stages: skip.
+            if [[ "$stage" == "fleet" || "$stage" == "revoked" ]]; then
+              continue
+            fi
+            # Revoked elsewhere: don't advance.
+            if jq -e --arg id "$id" 'index($id) != null' /tmp/revoked-ids.json > /dev/null; then
+              echo "  skip $id (revoked)"
+              continue
+            fi
+
+            next="${NEXT[$stage]:-}"
+            if [[ -z "$next" ]]; then
+              echo "  skip $id (no next stage for $stage)"
+              continue
+            fi
+
+            # Advance only if dwell elapsed (pre-canary stages have 0h dwell; they advance
+            # here only if the previous phase in their pipeline has stamped them — in MVP
+            # we leave pre-canary advances to the Reporter. This job advances canary-N → next).
+            dwell_h="${DWELL_HOURS[$stage]:-0}"
+            if [[ "$dwell_h" == "0" ]]; then
+              # Skip unless this is canary-N (handled above by the ladder); pre-canary
+              # stages are advanced by Reporter CI, not the scheduler.
+              case "$stage" in
+                canary-*) : ;;
+                *) echo "  skip $id (stage $stage: pre-canary, advanced by Reporter)"; continue ;;
+              esac
+            fi
+
+            entered_at=$(jq -r --arg s "$stage" '.metadata.advancedAt[$s] // ""' "$f")
+            if [[ -z "$entered_at" ]]; then
+              echo "  skip $id (no advancedAt[$stage] — waiting for initial stamp)"
+              continue
+            fi
+
+            entered_epoch=$(date -u -d "$entered_at" +%s 2>/dev/null || echo 0)
+            if [[ "$entered_epoch" -eq 0 ]]; then
+              echo "  skip $id (bad advancedAt timestamp: $entered_at)"
+              continue
+            fi
+            age_h=$(( (now_epoch - entered_epoch) / 3600 ))
+            if [[ "$age_h" -lt "$dwell_h" ]]; then
+              echo "  hold $id (age=${age_h}h / dwell=${dwell_h}h)"
+              continue
+            fi
+
+            echo "  ADVANCE $id: $stage -> $next"
+            echo "$f|$stage|$next" >> /tmp/advances.txt
+          done < <(find patches -type f -name '*.json' 2>/dev/null || true)
+
+          count=$(wc -l < /tmp/advances.txt | tr -d ' ')
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+
+      - name: Apply advances
+        if: steps.compute.outputs.count != '0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          now_iso=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          git config user.name  'chorus-bot'
+          git config user.email 'chorus-bot@users.noreply.github.com'
+
+          while IFS='|' read -r f stage next; do
+            [[ -z "$f" ]] && continue
+            tmp=$(mktemp)
+            jq \
+              --arg next "$next" \
+              --arg now "$now_iso" \
+              '.metadata.canaryStage = $next
+               | .metadata.advancedAt[$next] = $now' \
+              "$f" > "$tmp" && mv "$tmp" "$f"
+            id=$(jq -r '.metadata.id' "$f")
+            git add "$f"
+            git commit -m "canary-promote: $id -> $next"
+          done < /tmp/advances.txt
+
+          git push origin HEAD:${{ github.ref_name || 'main' }}
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f /tmp/advances.txt ]]; then
+            count=$(wc -l < /tmp/advances.txt | tr -d ' ')
+            echo "Advanced $count patch(es)."
+            cat /tmp/advances.txt || true
+          fi

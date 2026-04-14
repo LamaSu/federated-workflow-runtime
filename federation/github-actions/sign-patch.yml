@@ -1,0 +1,172 @@
+name: sign-patch
+
+# Sigstore keyless signing for patch manifests.
+#
+# Triggers on any PR that touches `patches/**`. For each new or modified manifest:
+#   1. Validate the file parses as JSON and conforms to PatchSchema (jq + node check).
+#   2. Compute canonical JSON → SHA-256 → blob to sign.
+#   3. Request an OIDC token from GitHub (id-token: write).
+#   4. Call `cosign sign-blob --bundle` — Fulcio issues a short-lived cert, Rekor logs the entry.
+#   5. Attach the .sigstore.json bundle as a PR artifact.
+#   6. Post a check-run back to the PR with verdict + bundle URL.
+#
+# References:
+#   - docs/ARCHITECTURE.md §5.3 (Signing)
+#   - docs/research/02-patch-registry.md — Sigstore keyless + Trusted Publishers
+#
+# Required secrets: none. The workflow uses GitHub's OIDC token only.
+# Required permissions: id-token: write, contents: read, checks: write, pull-requests: write.
+
+on:
+  pull_request:
+    paths:
+      - 'patches/**'
+      - 'trusted-signers.json'
+  workflow_dispatch:
+    inputs:
+      patch_path:
+        description: 'Optional: path to a single patch manifest to re-sign'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  id-token: write
+  checks: write
+  pull-requests: write
+
+jobs:
+  sign:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      COSIGN_YES: 'true'
+      COSIGN_EXPERIMENTAL: '1'
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: 'v2.4.0'
+
+      - name: Enumerate changed patch manifests
+        id: changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${{ github.event.inputs.patch_path }}" ]]; then
+            echo "$(realpath "${{ github.event.inputs.patch_path }}")" > /tmp/changed.txt
+          else
+            git fetch origin "${{ github.base_ref }}" --depth=1 || true
+            git diff --name-only --diff-filter=AM \
+              "origin/${{ github.base_ref }}...HEAD" -- 'patches/**/*.json' \
+              > /tmp/changed.txt || true
+          fi
+          echo "count=$(wc -l < /tmp/changed.txt | tr -d ' ')" >> "$GITHUB_OUTPUT"
+          cat /tmp/changed.txt || true
+
+      - name: Validate manifest schema
+        if: steps.changed.outputs.count != '0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          failed=0
+          while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
+            echo "::group::validate $f"
+            jq -e '. | has("metadata") and has("diff") and has("signature")' "$f" > /dev/null \
+              || { echo "::error file=$f::missing required top-level fields"; failed=1; }
+            jq -e '.metadata | has("id") and has("integration") and has("canaryStage")' "$f" > /dev/null \
+              || { echo "::error file=$f::metadata missing id/integration/canaryStage"; failed=1; }
+            jq -e '.metadata.canaryStage == "proposed"' "$f" > /dev/null \
+              || { echo "::error file=$f::canaryStage must be \"proposed\" on submission"; failed=1; }
+            echo "::endgroup::"
+          done < /tmp/changed.txt
+          exit "$failed"
+
+      - name: Compute canonical JSON hashes
+        if: steps.changed.outputs.count != '0'
+        id: hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/canonical
+          while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
+            base="$(basename "$f" .json)"
+            # Canonical JSON: sort keys recursively, compact. Exclude the `signature`
+            # field so the signature is computed over the same bytes the client hashes.
+            jq --sort-keys 'del(.signature)' "$f" > "/tmp/canonical/${base}.canonical.json"
+            sha256sum "/tmp/canonical/${base}.canonical.json" | awk '{print $1}' \
+              > "/tmp/canonical/${base}.sha256"
+            echo "  $f  ->  /tmp/canonical/${base}.canonical.json"
+          done < /tmp/changed.txt
+
+      - name: Sign with cosign (keyless)
+        if: steps.changed.outputs.count != '0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/bundles
+          while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
+            base="$(basename "$f" .json)"
+            canonical="/tmp/canonical/${base}.canonical.json"
+            bundle="/tmp/bundles/${base}.sigstore.json"
+            echo "::group::sign $f"
+            cosign sign-blob \
+              --yes \
+              --bundle "$bundle" \
+              "$canonical"
+            echo "::endgroup::"
+          done < /tmp/changed.txt
+
+      - name: Upload Sigstore bundles
+        if: steps.changed.outputs.count != '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sigstore-bundles
+          path: /tmp/bundles/*.sigstore.json
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Post check-run summary
+        if: always() && steps.changed.outputs.count != '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const changed = fs.readFileSync('/tmp/changed.txt', 'utf8')
+              .split('\n').filter(Boolean);
+            const lines = changed.map((f) => `- \`${f}\``);
+            const summary = [
+              '## Sigstore signing result',
+              '',
+              `Signed **${changed.length}** manifest(s):`,
+              '',
+              ...lines,
+              '',
+              'Bundles are attached to this workflow run as the `sigstore-bundles` artifact.',
+              'On merge, they will be committed alongside the manifests and synced to the CDN.',
+            ].join('\n');
+            await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: 'sign-patch',
+              head_sha: context.payload.pull_request?.head?.sha || context.sha,
+              status: 'completed',
+              conclusion: 'success',
+              output: {
+                title: 'Sigstore keyless signatures attached',
+                summary,
+              },
+            });

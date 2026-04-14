@@ -1,0 +1,173 @@
+name: abort-on-spike
+
+# Every 15 minutes, query the fleet-wide error telemetry endpoint and auto-abort
+# any patch whose observed error-rate ratio (vs pre-patch baseline) exceeds the
+# per-stage threshold defined in ARCHITECTURE.md §5.4.
+#
+# This runs OUT-OF-BAND from canary-promote:
+#   - canary-promote advances on dwell
+#   - abort-on-spike revokes on spike
+# They are allowed to race — both commit via PR / push to main; git serializes.
+#
+# Required:
+#   - env TELEMETRY_ENDPOINT: HTTPS URL that returns JSON matching the schema below.
+#     The endpoint is deployer-owned — could be a Chorus aggregator, PostHog, etc.
+#   - secrets.TELEMETRY_TOKEN: bearer token (optional).
+#
+# Expected telemetry shape:
+#   {
+#     "asOf": "ISO-8601",
+#     "patches": [
+#       {
+#         "patchId": "...",
+#         "stage": "canary-1" | "canary-10" | ...,
+#         "runs": 12345,
+#         "errorRate": 0.042,
+#         "baselineErrorRate": 0.010
+#       },
+#       ...
+#     ]
+#   }
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  abort:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TELEMETRY_ENDPOINT: ${{ vars.TELEMETRY_ENDPOINT }}
+      TELEMETRY_TOKEN: ${{ secrets.TELEMETRY_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Guard — telemetry endpoint configured?
+        id: guard
+        shell: bash
+        run: |
+          if [[ -z "${TELEMETRY_ENDPOINT:-}" ]]; then
+            echo "::notice::TELEMETRY_ENDPOINT not set; abort-on-spike is a no-op."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fetch telemetry
+        if: steps.guard.outputs.skip != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          headers=()
+          if [[ -n "${TELEMETRY_TOKEN:-}" ]]; then
+            headers+=(-H "Authorization: Bearer ${TELEMETRY_TOKEN}")
+          fi
+          # Retry 3x on transient — telemetry is a best-effort input.
+          for i in 1 2 3; do
+            if curl -fsSL --retry 3 --max-time 30 "${headers[@]}" \
+                 "$TELEMETRY_ENDPOINT" > /tmp/telemetry.json; then
+              break
+            fi
+            if [[ "$i" -eq 3 ]]; then
+              echo "::warning::telemetry fetch failed after 3 attempts; aborting run (no changes made)"
+              exit 0
+            fi
+            sleep 5
+          done
+          jq -e '.patches | type == "array"' /tmp/telemetry.json > /dev/null
+
+      - name: Compute aborts
+        if: steps.guard.outputs.skip != 'true'
+        id: aborts
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Abort-ratio table matches packages/registry/src/canary.ts DEFAULT_LADDER.
+          # abortRatio = max(errorRate / baseline) before flip to revoked.
+          declare -A ABORT=( \
+            ["canary-1"]="2.0" \
+            ["canary-10"]="1.2" \
+            ["canary-100"]="1.1" \
+            ["fleet"]="1.05" \
+          )
+          MIN_RUNS=100     # Don't abort on tiny samples.
+
+          : > /tmp/aborts.txt
+          jq -r '.patches[] | [.patchId, .stage, (.runs|tostring), (.errorRate|tostring), (.baselineErrorRate|tostring)] | @tsv' \
+            /tmp/telemetry.json \
+            | while IFS=$'\t' read -r pid stage runs err baseline; do
+                threshold="${ABORT[$stage]:-}"
+                [[ -z "$threshold" ]] && continue
+                if [[ "$runs" -lt "$MIN_RUNS" ]]; then continue; fi
+
+                ratio=$(awk -v a="$err" -v b="$baseline" 'BEGIN{ if (b+0 == 0) { print (a+0>0?"99999":"0") } else { printf "%.4f", a/b } }')
+                over=$(awk -v r="$ratio" -v t="$threshold" 'BEGIN{ print (r+0 > t+0) ? "1" : "0" }')
+                if [[ "$over" == "1" ]]; then
+                  echo "  ABORT $pid stage=$stage ratio=$ratio threshold=$threshold runs=$runs"
+                  echo "$pid|$stage|$ratio|$runs" >> /tmp/aborts.txt
+                fi
+              done
+          count=$(wc -l < /tmp/aborts.txt | tr -d ' ')
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+
+      - name: Apply aborts to revoked.json
+        if: steps.guard.outputs.skip != 'true' && steps.aborts.outputs.count != '0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name  'chorus-bot'
+          git config user.email 'chorus-bot@users.noreply.github.com'
+          now_iso=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          while IFS='|' read -r pid stage ratio runs; do
+            [[ -z "$pid" ]] && continue
+            # Is it already revoked?
+            already=$(jq --arg id "$pid" '[.revoked[] | select(.patchId == $id)] | length' revoked.json)
+            if [[ "$already" != "0" ]]; then
+              echo "  skip $pid (already on revoked.json)"
+              continue
+            fi
+
+            tmp=$(mktemp)
+            jq \
+              --arg id "$pid" \
+              --arg reason "auto-abort: error-rate spike at $stage (ratio=$ratio, runs=$runs)" \
+              --arg severity "high" \
+              --arg at "$now_iso" \
+              '.asOf = $at
+               | .revoked += [{
+                   "patchId": $id,
+                   "reason": $reason,
+                   "severity": $severity,
+                   "revokedAt": $at
+                 }]' \
+              revoked.json > "$tmp" && mv "$tmp" revoked.json
+            git add revoked.json
+          done < /tmp/aborts.txt
+
+          if git diff --cached --quiet; then
+            echo "No new revocations."
+          else
+            git commit -m "abort-on-spike: auto-revoke $(wc -l < /tmp/aborts.txt | tr -d ' ') patch(es)"
+            git push origin HEAD:${{ github.ref_name || 'main' }}
+          fi
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f /tmp/aborts.txt ]]; then
+            count=$(wc -l < /tmp/aborts.txt | tr -d ' ')
+            echo "Auto-revoked $count patch(es) this run."
+            cat /tmp/aborts.txt || true
+          fi
