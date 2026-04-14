@@ -13,9 +13,9 @@ safe rollout to a fleet of user machines.
 - [x] Sigstore / Cosign / SLSA provenance
 - [x] npm provenance feature (sigstore-backed)
 - [x] Homebrew formula distribution model
-- [ ] Chrome component updater architecture
-- [ ] CrowdStrike content delivery
-- [ ] Staged rollout / canary patterns (iOS, Kubernetes, feature flags)
+- [x] Chrome component updater architecture
+- [x] CrowdStrike content delivery
+- [x] Staged rollout / canary patterns (iOS, Kubernetes, feature flags)
 - [ ] Reputation systems (npm, PGP web of trust, Stack Overflow)
 - [ ] Threat model: malicious patches
 - [ ] Rollback strategies
@@ -69,130 +69,212 @@ Flow:
 
 Source: https://slsa.dev/spec/v1.0/levels, Wiz SLSA Academy, Google SLSA spec
 
-Pronounced "salsa." Proposed by Google 2021, now a CNCF incubation project.
-SLSA v1.0 focuses on the **build track**; source-track and dependency-track are future.
-
-### Level 0 — No SLSA
-No provenance, no signing. Informal trust only.
-
+### Level 0 — No SLSA. Informal trust only.
 ### Level 1 — Provenance Exists
-- The software producer must generate and distribute **provenance** describing
-  how the artifact was built: build platform, build process, top-level inputs.
-- No tamper-protection yet. Provenance can be forged.
-- **Value**: enables debugging, identification of vulnerable deps.
-
+- Producer generates & distributes **provenance** describing build platform, process, inputs.
+- Not tamper-proof. Enables debugging and vuln identification.
 ### Level 2 — Hosted Build + Signed Provenance
-- Build must run on **dedicated hosted infrastructure** (not a laptop).
-- Provenance is **digitally signed** by the build platform.
-- Prevents unsophisticated tampering with provenance or artifacts in transit.
-- Example: GitHub Actions with OIDC + sigstore.
-
+- Build runs on **dedicated hosted infrastructure** (not a laptop).
+- Provenance is **digitally signed** by the build platform. (GitHub Actions + sigstore = L2.)
 ### Level 3 — Hardened Build Platform
-- All L2 requirements plus:
-  - Build platform enforces **run-to-run isolation** (one build cannot influence another).
-  - Signing keys / auth credentials are not accessible to build scripts.
-- Protects against sophisticated threats like supply-chain worms.
-- This is the practical "high-water mark" for most projects.
-
-### Level 4 — Deferred in v1.0
-- Originally: two-person review + hermetic + reproducible builds.
-- Deferred to a future version due to cost/complexity.
+- L2 + **run-to-run isolation** + **signing keys inaccessible to build scripts**.
+### Level 4 — Deferred in v1.0 (two-person review + hermetic + reproducible).
 
 ### Key Insight for Chorus
 - **Target L2 for MVP**: sign with sigstore from GitHub Actions. "Good enough."
-- **L3 would require** our own hardened build platform — probably not worth it initially.
 - **Provenance JSON** should include: patch source repo, commit SHA, build steps,
-  dependencies pulled, and the human/bot identity that triggered it.
+  dependencies, and the human/bot identity that triggered it.
 
 ---
 
 ## npm Provenance (Sigstore-Backed) — GA since April 2023
 
-Source: https://blog.sigstore.dev/npm-provenance-ga/, https://docs.npmjs.com/generating-provenance-statements/,
-https://github.blog/security/supply-chain-security/introducing-npm-package-provenance/
-
-npm was the first major package registry to integrate Sigstore natively. Millions of
-packages have published with provenance by April 2026.
+Source: https://blog.sigstore.dev/npm-provenance-ga/, https://docs.npmjs.com/generating-provenance-statements/
 
 ### How It Works
 1. Developer runs `npm publish --provenance` in a CI environment (GitHub Actions, GitLab CI).
-2. The npm CLI detects the OIDC provider and uses **workload identity federation** —
-   no secrets, no API keys stored in the repo.
-3. CLI asks the CI system for an OIDC token scoped to the workflow.
-4. CLI sends this token to Sigstore Fulcio → gets short-lived cert binding the public
-   key to `github.com/owner/repo/.github/workflows/publish.yml@refs/heads/main`.
-5. CLI signs a **SLSA provenance attestation** (JSON following the SLSA spec):
+2. npm CLI detects the OIDC provider and uses **workload identity federation** — no secrets.
+3. CLI gets OIDC token from CI system → sends to Fulcio → gets short-lived cert binding the
+   public key to `github.com/owner/repo/.github/workflows/publish.yml@refs/heads/main`.
+4. CLI signs a **SLSA provenance attestation** (JSON):
    - `subject`: package name@version + tarball SHA-512
-   - `predicate`: builder (GitHub Actions), invocation (workflow run URL), materials (source commit)
-6. Attestation is sent to Rekor for transparency logging.
-7. Attestation bundle (cert + signature + SET) is uploaded to npm registry alongside tarball.
-8. Registry verifies the signature + checks the identity matches a "trusted publisher"
-   configured on the package.
+   - `predicate`: builder, invocation (workflow run URL), materials (source commit)
+5. Attestation sent to Rekor for transparency logging.
+6. Bundle uploaded to npm registry alongside the tarball.
+7. Registry verifies signature + checks identity matches a "trusted publisher" config.
 
-### Trusted Publishers
-- Package maintainer registers a trusted GitHub Actions / GitLab workflow.
-- Only that workflow can publish new versions — removes stolen-npm-token attack.
-- This is the key security win: **no long-lived npm tokens in CI**.
+### Trusted Publishers (Key Security Win)
+- Maintainer registers a trusted GitHub Actions / GitLab workflow.
+- Only that workflow can publish — **eliminates stolen-npm-token attack** entirely.
 
 ### Verification (Consumer Side)
-- `npm audit signatures` verifies provenance attestations for all installed packages.
-- You can also view on npmjs.com: a badge shows "Provenance" with a link to the transparency log.
+- `npm audit signatures` verifies provenance for installed packages.
+- npmjs.com shows a "Provenance" badge linking to the transparency log.
 
 ### Key Insight for Chorus
-- We should **emulate npm's trusted-publisher model**: register a workflow that publishes
-  patches, and no one else can sign on behalf of that package.
-- The provenance attestation format (SLSA v1.0 JSON) is a good template for our patch manifest.
-- **npm's model is the de facto standard now**; users will expect this or stronger.
+- **Emulate npm's trusted-publisher model**: register a workflow that signs patches.
+- Use **SLSA provenance JSON** as our attestation format.
+- The pattern is now the de facto standard; don't invent a new one.
 
 ---
 
 ## Homebrew Formula Distribution Model
 
-Source: https://docs.brew.sh/How-To-Open-a-Homebrew-Pull-Request, Formula-Cookbook,
-https://docs.brew.sh/Adding-Software-to-Homebrew
+Source: https://docs.brew.sh/How-To-Open-a-Homebrew-Pull-Request, Formula-Cookbook
 
-Homebrew is the "no signing, pure git + review + checksum" model — fundamentally
-different from npm/sigstore.
-
-### The Distribution Model
-- **No per-user signing**. Full stop.
-- Formulas live in **GitHub repos called "taps"**: `Homebrew/homebrew-core`,
-  `Homebrew/homebrew-cask`, and user/org taps like `hashicorp/tap`.
-- A formula is a **Ruby file** describing: source URL (usually a tarball), SHA-256 checksum,
-  dependencies, build instructions, test command.
-- `brew install foo` does:
-  1. Clone or pull the tap's git repo (HTTPS to github.com).
+### Model: Pure Git + Human Review + Checksum
+- **No per-user signing.** Full stop.
+- Formulas in **GitHub "taps"**: `Homebrew/homebrew-core`, plus user/org taps.
+- A formula is a **Ruby file** with source URL, SHA-256, deps, build steps, test.
+- `brew install foo`:
+  1. Clone/pull the tap's git repo via HTTPS.
   2. Read the formula.
   3. Download the source tarball.
-  4. **Verify SHA-256 checksum** matches the one in the formula.
-  5. Build locally (or download a pre-built bottle from Homebrew's CDN).
+  4. **Verify SHA-256** matches the formula.
+  5. Build locally (or use pre-built "bottle" from CDN).
 
-### The Review Process
-- You fork `Homebrew/homebrew-core`, add a formula file, and open a PR.
-- Automated checks run (BrewTestBot): `brew audit --new --formula foo` checks naming,
-  format, license, known-bad URLs, and builds on macOS + Linux.
-- A Homebrew maintainer manually reviews: Is the software popular enough? Open source?
-  Does the formula follow conventions?
-- Once merged, the formula is available to all users on their next `brew update`.
+### Review Process
+- Fork `Homebrew/homebrew-core`, add formula, open PR.
+- **BrewTestBot**: `brew audit --new --formula foo` validates naming/format/license + builds on macOS+Linux.
+- **Human maintainer review**: popularity, open source, conventions.
+- Once merged, available on next `brew update`.
 
 ### Why No Signing?
-Three reasons, explicit in Homebrew's threat model:
-1. **Trust is placed in GitHub**: HTTPS + git's content-addressable hashes = tamper-evident.
-   An attacker would need to compromise GitHub OR the tarball host (checksum catches that).
-2. **Formulas themselves are public code, reviewed by humans** before merge. The review IS
-   the signing.
-3. **Per-user signing was tried** (homebrew-bundle had some experiments) and was
-   unmaintainable — formula updates happen thousands of times per week.
+1. Trust is in **GitHub HTTPS + git content-addressable hashes**. Tarball tampering caught by checksum.
+2. Formulas are **public Ruby code, human-reviewed** before merge. The review IS the signature.
+3. Per-user signing was tried; unmaintainable at their update volume.
 
 ### Key Insight for Chorus
-- Homebrew is viable at scale **because** they have a full-time maintainer team reviewing
-  every submission. Chorus does not. We cannot copy this model 1:1.
-- BUT: the **pattern of "fetch, verify hash, execute"** is still sound. We just need the
-  hash+signature to come from someone we trust.
-- Homebrew's **tap model** (decentralized — any GitHub user can host their own tap) is
-  attractive for Chorus: let each team host their own patch registry as a git repo.
-- The **checksum-in-formula pattern** is a good hedge: even if sigstore fails, a good
-  old-fashioned SHA-256 lets us detect tarball tampering.
+- Homebrew works **because** of full-time maintainers reviewing every submission.
+  Chorus cannot copy this 1:1.
+- BUT: **"fetch, verify hash, execute"** is sound. Just need the hash+signature from trusted source.
+- **Tap model (decentralized)** is attractive: let each team host their own patch registry as a git repo.
+- **Checksum-in-manifest** is a good hedge: even if sigstore fails, SHA-256 catches tarball tampering.
+
+---
+
+## Chrome Component Updater + CRX3 Format
+
+Source: https://chromium.googlesource.com/chromium/src/+/lkgr/components/component_updater/README.md,
+Chromium Updater Functional Specification
+
+### Architecture
+- Component Updater is a **piece of Chrome that updates other pieces of Chrome** without
+  requiring a full browser update. Examples: SafeBrowsing lists, Widevine DRM, Origin Trials.
+- Components are delivered as **CRX3 files** (signed ZIP archives).
+- Registers components at browser startup; starts checking for updates **6 minutes later**,
+  with substantial pauses between successive updates (rate-limited to avoid thundering herd).
+
+### CRX3 Signing
+- Developer creates an RSA key pair.
+- Component ID = **first 128 bits of SHA-256(public key)**, rendered as hex in a-p charset.
+  This makes the ID self-certifying: the ID IS the hash of the trusted key.
+- The CRX3 archive is signed with that RSA private key.
+- Chrome verifies the signature against the known public key before installing.
+- Invalid signatures → **rejected, not installed**.
+
+### Omaha Update Protocol
+- Chrome polls Google-operated Omaha servers for update manifests.
+- Server responds with: new version, download URL, SHA-256 of the CRX3.
+- Chrome can perform **differential updates** (transparent version patching).
+
+### Why This Pattern Matters for Chorus
+- **Self-certifying IDs**: encoding the public key hash INTO the component ID means
+  an attacker can't spoof a component unless they compromise both the registry AND the
+  hardcoded pubkey-hash in the client. This is a really strong pattern.
+- **Rate-limiting update checks** (6min pause, then dwell) prevents thundering herd.
+- **Differential updates** are efficient — only download the diff from current version.
+- **Update on browser restart, not on-demand**: gives time for Google to detect bad components
+  and pull them before mass deployment.
+
+---
+
+## CrowdStrike Channel Files — The Cautionary Tale
+
+Source: https://www.crowdstrike.com/wp-content/uploads/2024/08/Channel-File-291-Incident-Root-Cause-Analysis-08.06.2024.pdf,
+https://overmind.tech/blog/inside-crowdstrikes-deployment-process
+
+### Architecture (Pre-Outage)
+- Falcon sensor is a **modular service** with behavior controlled by "channel files" (config files).
+- Channel files contain "Template Instances" — instantiations of Template Types, each mapping
+  to specific sensor behaviors.
+- **Rapid Response Content** was pushed **immediately to the entire fleet** to respond to
+  new threats quickly.
+- The sensor read Template Instances from disk and executed them in the kernel driver.
+
+### What Went Wrong (July 19, 2024)
+- A **content validation bug** let a malformed Channel File 291 pass testing.
+- When deployed **instantly to ~8.5 million machines worldwide**, it caused Windows kernel
+  crashes (BSOD) as the sensor tried to read an out-of-bounds memory region.
+- Recovery required **manual boot-to-safe-mode** on every affected machine. Estimated
+  damages: $5.4B+ to Fortune 500 alone.
+
+### Post-Incident Changes
+- **Staggered deployment** — "updates gradually deployed to larger portions of the sensor
+  base, starting with a **canary deployment**."
+- **Canary ring → deployment rings → full rollout** — new Template Instances must pass
+  canary before wider promotion, OR be rolled back if problems detected.
+- **Customer-controlled delays**: admins can now choose update cadence.
+- **Content schema validation** added before acceptance into the pipeline.
+
+### Key Insight for Chorus — This Is Our Worst Case
+- A patch registry that pushes updates **instantly to all users** is one bug away from mass outage.
+- **MUST have canary rollout**. Not optional.
+- **MUST have content validation** BEFORE accepting patches into the registry —
+  not just signature verification. Schema + sanity checks + smoke tests.
+- **MUST have rollback/kill switch** that can be triggered faster than the rollout wave moves.
+- **Customer control** over update timing is table stakes for enterprise use.
+
+---
+
+## Canary Deployment + Staged Rollout Patterns
+
+Source: https://www.getunleash.io/blog/canary-deployment-what-is-it,
+https://launchdarkly.com/blog/four-common-deployment-strategies/,
+https://configcat.com/blog/2024/01/16/using-configcat-for-staged-rollouts-and-canary-releases/
+
+### The Canary Pattern
+Named after "canary in a coal mine" — a small sacrificial cohort gets the change first.
+If the canary "dies" (errors spike, perf degrades), rollback before wider damage.
+
+### Typical Stages
+Iterative ladder, with each stage dwelling long enough to collect signal:
+- **Dev/internal**: 100% of dev team, ~1 day dwell
+- **Canary 1%**: smallest external cohort, ~2-24 hours dwell, watch error rate + perf
+- **Canary 5-10%**: broader cohort, ~1-3 days
+- **Rollout 25-50%**: majority, dwell based on risk (hours for hotfix, days for feature)
+- **Full 100%**: complete rollout
+
+### Cohort Selection
+- **Hash-based**: `hash(user_id + feature_name) % 100 < rollout_pct` — stable per user,
+  so once a user is in a canary they stay in it.
+- **Geo/environment**: roll out to non-production or secondary regions first.
+- **Self-selection**: opt-in "beta" or "early access" rings.
+
+### Kill Switch
+- Feature flag service (Unleash, LaunchDarkly, ConfigCat, PostHog) lets you flip a boolean
+  to disable a feature across the fleet in seconds, without a code deploy.
+- Critical: kill switch state **evaluated client-side**, with a cache-bust mechanism so
+  clients poll often enough to pick up the kill.
+
+### Signal Collection
+- Error rate (per-cohort, not aggregate!)
+- Latency p50/p95/p99
+- Business metrics (conversion, retention)
+- Explicit user feedback (for long-dwell rollouts)
+- **Automated rollback**: if error rate > threshold for N minutes, auto-revert.
+
+### Key Insight for Chorus
+- **Recommended canary ladder**:
+  - 0.1% (~1 in 1000 users) for 1 hour
+  - 1% for 4 hours
+  - 10% for 24 hours
+  - 50% for 48 hours
+  - 100%
+- **Dwell times** should be tuned per-patch risk level (security vs feature vs cosmetic).
+- **Cohort assignment** via `hash(machine_id + patch_id)` — deterministic + spreads load.
+- **Error signal**: use the error signatures from scout-charlie's work to detect "patch made it worse."
+- **Kill switch**: a publish-subscribe "revoke" channel that clients check on every integration run.
 
 ---
 
@@ -200,9 +282,9 @@ Three reasons, explicit in Homebrew's threat model:
 - [x] Sigstore / Cosign / SLSA provenance
 - [x] npm provenance feature (sigstore-backed)
 - [x] Homebrew formula distribution model
-- [ ] Chrome component updater architecture
-- [ ] CrowdStrike content delivery
-- [ ] Staged rollout / canary patterns (iOS, Kubernetes, feature flags)
+- [x] Chrome component updater architecture
+- [x] CrowdStrike content delivery
+- [x] Staged rollout / canary patterns (iOS, Kubernetes, feature flags)
 - [ ] Reputation systems (npm, PGP web of trust, Stack Overflow)
 - [ ] Threat model: malicious patches
 - [ ] Rollback strategies
