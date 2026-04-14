@@ -240,3 +240,68 @@ More subtly: we have the option of *not building this* by choosing to mark nsjai
 - `docs/ARCHITECTURE.md` §12 open question #2 (is nsjail enough, or do we need gVisor?)
 
 ---
+
+## 4. Differential testing as gate
+
+**Priority: 3** (tied with event triggers). Critical for registry health at scale; not urgent for the first 100 patches. This is the feature that prevents the second year from being painful.
+
+### What it is
+
+Today (see `docs/ARCHITECTURE.md` §10.4, Gate 4), differential testing is **informational, not a gate.** When a proposed patch is submitted, the repair agent runs it against the cassette library. Regression counts are logged. The canary ladder rolls out the patch anyway; rollout is halted only by error-rate telemetry from real users.
+
+Flipping to a gate means: **if the patched integration fails N% of cassettes that the current integration passes, reject the patch automatically.** No canary, no human review, no rollout. It's an up-front correctness check.
+
+The scout-charlie research (`docs/research/03-error-signatures-and-testing.md`) established differential testing as a known-good pattern (taken from Pact, VCR-Polly, MSW). The infrastructure is built — we're just not pulling the trigger.
+
+### Trigger
+
+Build when **any one** of these fires:
+- **Month 6 post-launch** (per `ARCHITECTURE.md` §10.4 — hard cutoff regardless of data).
+- **First regression leak past canary.** A patch passes canary (error-rate stays green), ships to 100% of users, and then a secondary bug surfaces that the cassette library would have caught. This is the "I told you so" moment — flip the gate immediately.
+- **Cassette library hits 1,000+ entries.** At that scale, the signal/noise ratio for differential testing is high enough that false rejections become rare.
+- **First malicious patch detected.** A patch that subtly changes semantics (e.g., exfiltrates then still returns normal-looking result). Differential testing detects it because one of the cassettes catches the side-effect change.
+
+### Priority rank: 3
+
+Above Postgres (4) and sandbox (5) because it's a registry-health feature and the registry is the moat. Below auto-MCP (1) and npm packaging (2) because users don't directly feel differential testing; they feel its absence only when a bad patch ships.
+
+Tied with event triggers (3) because both are v1.1 features with similar effort. Either one can ship first — we ship whichever has a signal first.
+
+### First 3-5 concrete steps
+
+**Day 1** — Walk through `packages/repair-agent/src/validate.ts`. The snapshot validation logic is there; it already runs cassettes against the proposed patch. Count pass/fail per cassette.
+
+**Day 2** — Extract a policy function: `shouldGate(results: CassetteResult[]): GateDecision`. Configurable threshold (default: reject if the patch fails any cassette the current integration passes). Lives in `packages/registry/src/gate/differential.ts`.
+
+**Day 3** — Wire it into the registry submission path. When a patch is submitted, run differential testing before the canary decision. If the gate says REJECT, the patch goes to `rejected/` with the rejection reason. Link from `docs/ARCHITECTURE.md` §5.4.
+
+**Day 4** — UX. CLI `chorus patch status <patch-id>` should show gate results for patches that got rejected: which cassettes failed, expected vs. actual output diff, whether this is a regression or a fix. A rejected patch is a teaching moment for the contributor.
+
+**Day 5** — Telemetry. Track gate rejection rate over time. If it drifts above 20% of submissions, something is wrong (either the cassette library is unstable or repair-agent quality is degrading). Alert at `chorus status --registry` output.
+
+### Estimated effort
+
+**4 engineer-days.** Infrastructure exists. The work is gate-placement, UX polish, and telemetry. No new subsystems.
+
+### Risk if delayed
+
+Medium. Every month we wait, more bad patches can theoretically ship. In practice, we have other gates (static AST, signing, canary, revocation) that catch most failure modes. The unique value of differential testing is catching *semantic regressions that compile and pass linting*. That's a narrow wedge but an important one.
+
+**Concrete risk:** a patch to `slack-send` changes the attachment-handling logic in a way that still returns 200 OK but drops attachments silently. Static AST doesn't catch it. Canary doesn't catch it (users don't get error-rate feedback for "my attachments went missing"). Only differential testing, running a cassette that specifically asserts on attachment pass-through, catches this. **We'd need this test to exist in the cassette library** — which is why the gate is more valuable once cassette count is high.
+
+### Risk if rushed
+
+Medium. If we flip the gate before the cassette library is comprehensive, we reject legitimate patches because cassette coverage is uneven. A contributor fixes a real bug, but the new code path has a cassette that was recorded under the buggy behavior — the patch "fails" differential testing by doing the right thing.
+
+Mitigation: introduce a "cassette staleness" signal. Cassettes older than the patch they were recorded against are soft-evidence only. Cassettes newer than the integration version they target are hard-evidence. This is 1 more day of work but saves the class of false-positive described above.
+
+**Real-world tuning knob:** gate threshold should probably be "fail > 5% of cassettes" in v1.1, tightening to "fail any cassette" by v1.2 as the library stabilizes. Make this config, not code.
+
+### References
+
+- `docs/research/03-error-signatures-and-testing.md` (scout-charlie's differential-testing research)
+- `docs/ARCHITECTURE.md` §5.4 (canary ladder — gate fits before canary)
+- `docs/ARCHITECTURE.md` §10.4 (Gate 4 currently deferred)
+- `packages/repair-agent/src/validate.ts` (existing snapshot validation — the base)
+
+---
