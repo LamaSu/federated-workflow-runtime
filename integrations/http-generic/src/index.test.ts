@@ -46,7 +46,7 @@ function mockFetchOnce(opts: {
   body?: unknown;
   bodyText?: string;
 }): void {
-  const mock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => {
+  const mock = vi.fn(async (_url: string | URL, _init?: RequestInit) => {
     const responseHeaders = new Headers(opts.headers ?? {});
     const text =
       opts.bodyText !== undefined
@@ -107,7 +107,7 @@ describe("request — happy path", () => {
   });
 
   it("serializes object body as JSON with default Content-Type", async () => {
-    const mock = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+    const mock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
       // Inspect the outgoing request — this is the primary assertion
       expect(init?.method).toBe("POST");
       const headers = new Headers(init?.headers);
@@ -130,7 +130,7 @@ describe("request — happy path", () => {
   });
 
   it("preserves caller-supplied Content-Type and string body", async () => {
-    const mock = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+    const mock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
       const headers = new Headers(init?.headers);
       expect(headers.get("content-type")).toBe("text/xml");
       expect(init?.body).toBe("<x/>");
@@ -235,7 +235,7 @@ describe("request — timeout & cancellation", () => {
     // Fetch that never resolves unless aborted
     vi.stubGlobal(
       "fetch",
-      vi.fn((_url: RequestInfo | URL, init?: RequestInit) => {
+      vi.fn((_url: string | URL, init?: RequestInit) => {
         return new Promise((_, reject) => {
           init?.signal?.addEventListener("abort", () => {
             const reason =

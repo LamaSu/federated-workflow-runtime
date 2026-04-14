@@ -60,7 +60,7 @@ function makeContext(opts: {
 function installMockFetch(responder: (init: RequestInit | undefined) => Response | Promise<Response>): {
   mock: ReturnType<typeof vi.fn>;
 } {
-  const mock = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+  const mock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
     return responder(init);
   });
   vi.stubGlobal("fetch", mock);

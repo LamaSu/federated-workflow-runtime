@@ -211,20 +211,21 @@ export const postMessage: OperationHandler<PostMessageInput, PostMessageOutput> 
   }
 
   // Any remaining transport error (5xx, 403, etc.)
-  let body: { ok?: boolean; error?: string; ts?: string; channel?: string } | null = null;
+  type SlackBody = { ok?: boolean; error?: string; ts?: string; channel?: string };
+  let rawBody: SlackBody | null = null;
   try {
-    body = (await response.json()) as typeof body;
+    rawBody = (await response.json()) as SlackBody;
   } catch {
     // Slack normally always returns JSON, but if it doesn't we still have to
     // surface something sensible rather than letting a parse error bubble.
-    body = null;
+    rawBody = null;
   }
 
-  if (response.status >= 400 || body === null) {
+  if (response.status >= 400 || rawBody === null) {
     await ctx.snapshot?.record(
       `slack-send.postMessage.${response.status}`,
       { channel: parsed.channel },
-      { status: response.status, bodyShape: body ? Object.keys(body) : null },
+      { status: response.status, bodyShape: rawBody ? Object.keys(rawBody) : null },
     );
     throw new IntegrationError({
       message: `Slack HTTP ${response.status}`,
@@ -236,6 +237,7 @@ export const postMessage: OperationHandler<PostMessageInput, PostMessageOutput> 
     });
   }
 
+  const body: SlackBody = rawBody;
   if (!body.ok) {
     const slackError = body.error ?? "unknown_error";
     await ctx.snapshot?.record(

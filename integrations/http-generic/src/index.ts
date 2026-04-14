@@ -51,7 +51,8 @@ export const HttpRequestOutputSchema = z.object({
   body: z.unknown(),
 });
 
-export type HttpRequestInput = z.infer<typeof HttpRequestInputSchema>;
+export type HttpRequestInput = z.input<typeof HttpRequestInputSchema>;
+export type HttpRequestParsed = z.output<typeof HttpRequestInputSchema>;
 export type HttpRequestOutput = z.infer<typeof HttpRequestOutputSchema>;
 
 // ── Manifest ────────────────────────────────────────────────────────────────
