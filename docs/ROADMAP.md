@@ -446,3 +446,93 @@ Low. The design space is narrow — Inngest, Trigger.dev, n8n, Temporal all have
 - `docs/research/01-workflow-engines.md` (scout-alpha's notes on Inngest/Trigger.dev wait primitives)
 
 ---
+
+## 7. UI — reframed (we are not building a dashboard)
+
+**Priority: 6.** Last because the answer is "the user's agent builds the UI, not us."
+
+### The reframe
+
+The user's exact words: *"we want the UI to be dynamic and built by the users agent, perhaps asking them how they want to see it and for any style they want things."*
+
+Read that carefully. It's not "defer the UI." It's "the concept of a fixed UI is obsolete." Chorus is backend infrastructure for the agent era. Agents are the front-end.
+
+This changes `ARCHITECTURE.md` §1.4's stance from "CLI ships first, UI later" to "CLI and JSON API ship — agents generate the UI." Hardcoded dashboard is **explicitly struck from the roadmap**, permanently.
+
+### What was deferred (the old plan)
+
+The original roadmap had a drag-drop visual flow builder at §11.3 (v2). That feature is dead. Here's why:
+
+1. **Agents don't need drag-drop.** An agent generates a workflow from a prompt. Drag-drop is a UX affordance for humans who can't program. In an agent-era product, the human describes intent to the agent; the agent writes the `chorus/` TypeScript.
+2. **Hardcoded dashboards are outdated by definition.** A `runs` dashboard we design in 2026 is a 2026 dashboard. A user in 2027 wants their dashboard to also include cost-per-run, latency breakdowns per integration, and patch-adoption telemetry. Their agent builds that dashboard on demand, from the JSON API, in whatever visual language they prefer.
+3. **Every dashboard we ship is a dashboard we maintain.** Routes, components, ARIA, dark mode, i18n. Sibling agent `ui-kilo` is building the *JSON API that any dashboard could use*. That's the right layer for us.
+
+### What ships instead
+
+**`ui-kilo` is building this in parallel.** Expected deliverables (not in roadmap-lima's scope to detail):
+
+1. **JSON API**: `@chorus/runtime` exposes `/api/runs`, `/api/patches`, `/api/credentials` (redacted), `/api/workflows`, `/api/integrations`. Documented via OpenAPI 3.1 spec. Accessible at `http://localhost:$PORT/api/*` from any HTTP client.
+2. **`chorus ui --prompt`**: a CLI command that prints a prompt template. The user copies it into their agent (Claude, Cursor, GPT-5, whatever) and says "here's the API, give me a dashboard with dark mode and a focus on failed runs." The agent generates React/Svelte/HTMX/whatever, fetches the JSON API, renders the user's dream dashboard.
+3. **OpenAPI spec shipped as a static artifact** for any existing "point-and-click API explorer" tool (Postman, Bruno, Insomnia).
+
+roadmap-lima's role here is to clarify what comes *after* ui-kilo's work lands.
+
+### Trigger (for anything beyond the JSON API + prompt template)
+
+There are three possible v1.x+ UI extensions. Each has its own trigger:
+
+**Extension A — "reference dashboard" (static, minimal):**
+- Trigger: 5+ users say "I don't have an agent set up yet; can you ship something I can open in a browser for my first 30 minutes with Chorus?"
+- This is *onboarding UI*, not *production UI*. It exists to let agent-less users see their first run in a browser.
+- Scope: one HTML page, no build step, fetches the JSON API, shows runs + patches.
+- Effort: 1 agent-day.
+
+**Extension B — "OpenAI-compatible endpoint" (adapter):**
+- Trigger: users with existing dashboard tools (Retool, Superblocks, n8n's own UI) ask "can I point my existing tool at Chorus's data?"
+- Adapt the JSON API to speak OpenAPI in a way that conventional BI/dashboard tools understand.
+- Effort: 2 agent-days, mostly API-shape decisions.
+
+**Extension C — "hosted version of the reference dashboard" (nope):**
+- Trigger: would be some form of "users want a shared web UI to see team workflows."
+- **Explicit rejection.** `ARCHITECTURE.md` §1.4: "Not a hosted SaaS." We don't host dashboards.
+- Users who want a hosted dashboard run the reference dashboard on their own infra. If they want a multi-tenant hosted version, they're outside Chorus's target.
+
+### Priority rank: 6
+
+Last. The JSON API (ui-kilo's work) is the only UI-layer work we're committed to. Everything else on this section is optional, demand-driven, and built as extensions only if users ask.
+
+### First concrete steps (for the team reading this later)
+
+**Not roadmap-lima's build list — ui-kilo's is.** This roadmap documents the decision, not the implementation.
+
+What roadmap-lima commits to:
+- Update `ARCHITECTURE.md` §1.4 bullet 1 to change "UI comes later; CLI ships first" to "Chorus is the backend; agents generate the UI. CLI ships first, JSON API ships alongside."
+- Remove "Flow visual editor (drag-drop)" from `ARCHITECTURE.md` §11.3 v2 roadmap. Replace with "OpenAPI-spec'd JSON API + agent-generated dashboards."
+- Remove "Web UI (read-only dashboard)" from `ARCHITECTURE.md` §11.2 v1.1 roadmap (except note: the reference dashboard in Extension A is ~1 day if needed).
+
+### Estimated effort
+
+**0 agent-days for the core decision** (it's a positioning change, not a build).
+**1 agent-day** for Extension A (reference dashboard) if triggered.
+**2 agent-days** for Extension B (OpenAPI adapter) if triggered.
+
+### Risk if delayed
+
+**No risk if we "delay" the dashboard — because we're not building it.** The risk is if we forget the decision and someone in 6 months starts building a hardcoded dashboard. This roadmap section exists to prevent that.
+
+**Real risk:** ui-kilo's JSON API delivery slips. Without the JSON API, agents can't generate dashboards. Monitor that; the JSON API is the fulcrum.
+
+### Risk if rushed
+
+If we hear "users want a dashboard" and panic-ship a hardcoded one, we create maintenance debt for a feature that's outdated the day it lands. The agent-era positioning is strongest when Chorus is unapologetically backend. Shipping a dashboard dilutes that.
+
+**Self-discipline:** when a user says "I want a dashboard," the correct first answer is "run `chorus ui --prompt` and paste that into your agent." If they don't have an agent, the second answer is "here's the reference dashboard" (Extension A). The third answer, "we'll build it for you," is *never* given.
+
+### References
+
+- `docs/ARCHITECTURE.md` §1.4 (will change per this section's decisions)
+- `docs/ARCHITECTURE.md` §11.2 (v1.1 — UI bullet will be removed)
+- `docs/ARCHITECTURE.md` §11.3 (v2 — "drag-drop flow editor" removed entirely)
+- `ui-kilo`'s output (parallel agent, not yet merged as of this writing)
+
+---
