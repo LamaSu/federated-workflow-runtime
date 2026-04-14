@@ -1,0 +1,35 @@
+# Chorus patch registry — review routing
+#
+# Syntax reference: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Policy mirrors `packages/registry/src/reputation.ts:SENSITIVE_SCOPES`.
+# Two-maintainer approval is ENFORCED by the branch-protection rule, not by this file alone.
+# This file routes; the branch rule decides the count.
+#
+# Replace the placeholder teams below with real GitHub team/user handles before enabling.
+
+# Default: any change needs at least one of the core maintainers.
+*                                       @YOUR_ORG/chorus-maintainers
+
+# Trust-set changes are ALWAYS sensitive.
+/trusted-signers.json                   @YOUR_ORG/chorus-security @YOUR_ORG/chorus-maintainers
+/revoked.json                           @YOUR_ORG/chorus-security @YOUR_ORG/chorus-maintainers
+
+# CI workflows — touching these grants new signing powers.
+/.github/workflows/                     @YOUR_ORG/chorus-security @YOUR_ORG/chorus-maintainers
+
+# Sensitive integration scopes — any patch touching auth/secrets/network must
+# have two approvals. GitHub branch protection requires the intersection of these
+# groups (security + maintainers) to approve.
+#
+# NOTE: CODEOWNERS can't match on JSON content (scope fields), so we err on the
+# side of routing entire integrations that are known-sensitive. For a broader
+# enforcement, `sign-patch.yml` parses the manifest and fails the check if a
+# sensitive scope is set without a "security-approved" label from 2 reviewers.
+/patches/slack-send/                    @YOUR_ORG/chorus-security @YOUR_ORG/chorus-maintainers
+/patches/http-generic/                  @YOUR_ORG/chorus-security @YOUR_ORG/chorus-maintainers
+
+# Docs-only changes: any maintainer can merge.
+/README.md                              @YOUR_ORG/chorus-maintainers
+/CONTRIBUTING.md                        @YOUR_ORG/chorus-maintainers
+/patches/README.md                      @YOUR_ORG/chorus-maintainers
