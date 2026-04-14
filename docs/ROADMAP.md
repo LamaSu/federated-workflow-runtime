@@ -305,3 +305,76 @@ Mitigation: introduce a "cassette staleness" signal. Cassettes older than the pa
 - `packages/repair-agent/src/validate.ts` (existing snapshot validation — the base)
 
 ---
+
+## 5. npm package publication + installer
+
+**Priority: 2.** This is packaging, not engineering. It's ranked this high because `QUICKSTART.md` already promises `npx chorus init` and nothing about our repo delivers that promise. Every day we don't publish is a day the install story is a lie.
+
+### What it is
+
+Right now, `@chorus/core`, `@chorus/runtime`, `@chorus/registry`, `@chorus/reporter`, `@chorus/repair-agent`, `@chorus/cli`, plus two integrations are private packages in a pnpm monorepo. Nothing is on npmjs.com. `npx chorus init` 404s.
+
+The shipping story has three prongs:
+1. **npm** — primary. `npm install -g chorus` or `npx chorus init`.
+2. **Homebrew** — `brew install chorus` for macOS / Linux users who prefer brew.
+3. **Windows MSI** — optional, only if enterprise users demand it (per `ARCHITECTURE.md` §12 open question #9).
+
+Each prong has a different packaging philosophy. npm is the one that must ship first.
+
+### Trigger
+
+**Ship the npm package day 1** after this roadmap is merged. There is no trigger worth waiting for; this is pure packaging hygiene. The *only* reasons to delay are (a) we want to bikeshed the CLI name (we don't — it's `chorus`), or (b) we want to delay public exposure for strategic reasons (we don't — public exposure is the point).
+
+Homebrew: ship when we have >100 npm installs. Signal: Homebrew formula maintainers appreciate mild traction before accepting a new formula.
+
+MSI: ship when an enterprise asks. Don't preemptively build for a user that doesn't exist.
+
+### Priority rank: 2
+
+Second only to auto-MCP because packaging is table-stakes. You can ship the best workflow engine on the planet, but if people can't `npm install` it, you have zero users.
+
+Ranked below auto-MCP only because auto-MCP is the *feature* that makes Chorus interesting; npm is the *distribution* that makes it usable. In practice we ship them in parallel: one agent on each, different week 1 deliverables.
+
+### First 3-5 concrete steps
+
+**Day 1** — Audit `package.json` files across all 7 workspaces. Fix:
+- `name`: `@chorus/core` is fine for scope-private; public publish needs either npm scope registration (`@chorus` on npmjs.com) or rename to unscoped (`chorus-core`, `chorus-runtime`, etc.). **Recommendation: claim `@chorus` on npmjs.com.** It's unclaimed as of 2026-04-14 (verify before committing).
+- `version`: all at `0.1.0`. Correct for an initial public release.
+- `publishConfig`: set `access: public` for scoped packages.
+- `files`: explicit allowlist so we don't publish `.ts` source accidentally, only `dist/`.
+- `main`, `types`, `exports`: verified per package.
+
+**Day 2** — Set up publishing. `pnpm publish --filter @chorus/*` with `--access public`. Dry-run first. Use `pnpm publish --dry-run` and eyeball the tarball contents.
+
+**Day 3** — CLI binary. The `chorus` command needs to be in `@chorus/cli`'s `bin` field. Currently it's there (`packages/cli/src/bin.ts`), but the tarball needs to include the compiled `dist/bin.js`. Verify with `npx @chorus/cli@0.1.0 --help` from a clean tmpdir.
+
+**Day 4** — `chorus init` bootstrapping. This command should scaffold a working project (already does per `cli-india`'s work). Test: `mkdir foo && cd foo && npx chorus init && chorus run` should land on a working dev server with a sample workflow.
+
+**Day 5** — Documentation. Update `QUICKSTART.md` with the real `npx chorus init` flow. Add `README.md` sections for "Install via npm" and "Install via Homebrew" (Homebrew is `coming soon`). Push to GitHub — first public release.
+
+### Estimated effort
+
+**2 agent-days for npm publish + 3 for Homebrew + 3-5 for MSI (only if demanded).** The agent-days reflect this being mostly mechanical work — version bumps, tarball verification, CI setup. Low intellectual load, high attention-to-detail load.
+
+### Risk if delayed
+
+High. Every week we don't ship is a week someone else could claim `chorus` on npm or the domain `chorus.dev` or the GitHub org. We already assume `github.com/chorus/chorus` in `ARCHITECTURE.md` §11 — need to secure that. Land-grab is a real concern.
+
+**Specific risk:** auto-MCP (section 1) depends on users having Chorus installed. If auto-MCP ships before npm publish, we're forced into "clone this git repo and run it from source" onboarding. That kills adoption.
+
+### Risk if rushed
+
+Low. Unlike every other item on this list, rushed npm publication is almost never a problem. Worst case, we publish `0.1.0`, find a bug, ship `0.1.1` the next day. That's how all npm packages start.
+
+**One gotcha to watch:** the monorepo's `pnpm workspace:*` protocol. When publishing, those internal refs must be resolved to concrete versions. `pnpm publish` does this automatically but verify in the tarball. Published packages should NOT contain `workspace:*` in their `dependencies`.
+
+Another gotcha: the 2 reference integrations (`http-generic`, `slack-send`) live in `integrations/` not `packages/`. Decide: do these get their own npm namespace (`@chorus-integrations/slack-send`) or live inside `@chorus/cli` as bundled? **Recommendation: separate namespace `@chorus-integrations/*`** so community integrations can follow the same publish pattern.
+
+### References
+
+- `QUICKSTART.md` (currently references `chorus init` which requires this to exist)
+- `README.md` (installation section needs update)
+- `packages/cli/package.json` (`bin` field for CLI entry)
+- `docs/ARCHITECTURE.md` §12 open question #9 (Windows MSI vs npm)
+
+---
