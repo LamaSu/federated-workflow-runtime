@@ -1,21 +1,27 @@
 # Research 01: Workflow Engine Internals
 Agent: scout-alpha
 Started: 2026-04-13T00:00:00Z
+Completed: 2026-04-13T00:00:00Z
 
 ## Progress Tracker
-- [x] n8n execution engine (overview)
-- [ ] n8n trigger patterns
-- [x] n8n node SDK (overview)
-- [ ] Activepieces architecture
-- [ ] Activepieces pieces registry
-- [ ] Windmill execution model
-- [ ] Windmill flow definition
-- [ ] Pipedream AI integration generation
-- [ ] Inngest durable execution
-- [ ] Trigger.dev patterns
-- [ ] Synthesis: patterns to adopt for Chorus
+- [x] n8n execution engine
+- [x] n8n trigger patterns
+- [x] n8n node SDK
+- [x] Activepieces architecture
+- [x] Activepieces pieces registry
+- [x] Windmill execution model
+- [x] Windmill flow definition
+- [x] Pipedream AI integration generation
+- [x] Inngest durable execution
+- [x] Trigger.dev patterns
+- [x] Synthesis: patterns to adopt for Chorus
+
+Status: COMPLETE
+Word count: ~3780
+Web calls used: 10 (search + fetch)
 
 ---
+
 
 ## n8n Execution Engine (Queue Mode) - WebSearch synthesis
 Sources:
@@ -287,3 +293,104 @@ Key facts:
 Design takeaway: CRIU is overkill for Chorus's MVP. Replay-based durable execution (Inngest model) is simpler and language-portable. Adopt step memoization + keep the CRIU option for later as an optimization for workflows with large in-memory state that's expensive to rehydrate.
 
 ---
+
+## Synthesis for Chorus
+(Design recommendations for the Chorus federated workflow runtime - derived from the five engines above.)
+
+### Execution Model: Replay-based Durable Execution + Postgres-as-queue
+The winning recipe:
+
+- **Queue**: Postgres with `UPDATE ... SKIP LOCKED` (Windmill's trick). No Redis/Bull, no Kafka. One fewer moving part, full ACID.
+- **Durable steps**: Inngest-style `step.run/sleep/waitForEvent` API. Each step deterministically named; outputs memoized per run.
+- **Replay over CRIU**: function body is re-invoked on every step boundary; SDK short-circuits completed steps using the state map. Portable across any runtime (Node, Python, Deno, future Rust/Go SDKs). CRIU can be added later as an optimization for heavyweight workflows.
+- **Isolation**: per-execution sandbox (Activepieces pattern). Prefer nsjail on Linux (Windmill pattern). On other platforms, use Node vm module or subprocess with restricted env - never run untrusted pieces in the worker process (n8n's weakness).
+- **State store**: Postgres rows per-run with a `steps` JSONB column keyed by step name. Same table as the queue. Single DB simplifies ops and backups.
+
+### Trigger Definitions: Three explicit types, first-class
+Adopt n8n's three-trigger taxonomy:
+- `webhook` - HTTP endpoint registered by runtime; test and production URLs.
+- `schedule` - cron or interval; evaluated on main instance; enqueues runs.
+- `poll` - periodic check fn with per-workflow persistent state (last-seen cursor).
+
+Plus Inngest's **event triggers**:
+- `event` - subscribe to named events (internal or from external bus). Enables fan-out and event-driven orchestration.
+
+A flow can have multiple triggers. Triggers declare their type explicitly (no inference).
+
+### Integration SDK: Pieces, not nodes. Unified component primitive.
+Copy Activepieces + Pipedream:
+- One primitive: **Action** (a step that runs). Triggers are a subtype of action with a `trigger_type` field.
+- Each integration = one npm package implementing `ChorusAction[]` and `ChorusCredential[]`.
+- Declarative-first (HTTP routing config), programmatic escape hatch.
+- Hot-reload in dev. `npm create @chorus/action` scaffolder.
+- **Auto-surface as MCP**: every action deployed to a Chorus instance is automatically exposed as an MCP tool for AI agents (Activepieces 2025 breakthrough). This is table stakes.
+
+### State Persistence: Postgres single-store
+- One `runs` table (id, flow_id, status, started_at, ended_at, input event, current_step).
+- One `steps` table (run_id, step_name, output JSONB, attempt count, error, completed_at).
+- One `triggers` table (flow_id, type, config, state JSONB - e.g., last-polled cursor).
+- One `credentials` table (id, type, encrypted_data BYTEA, refreshed_at, owner_id).
+- One `flows` table (id, version, definition JSONB - see "OpenFlow for Chorus" below).
+- One `events` table (id, name, payload, created_at) for event triggers.
+
+All in Postgres. MVP uses a single DB. Sharding/federation layered on later.
+
+### Retry/Error Handling: Per-step policy, explicit error branch
+- Each step declares `retry: { max, backoff: "exponential", delay: "1s" }` in its config (default: 3 retries, 1s base, exp).
+- Flow can declare a `failure_module` (Windmill pattern) - runs on terminal failure of any step.
+- Steps can have an explicit `onError: "continue" | "abort" | "branch"` policy.
+- Circuit-breaker built-in: after N consecutive failures in a flow's rolling window, new runs refused until manual reset.
+
+### Credentials: n8n model, hardened
+- Separate `credentials` table, referenced by ID in flow JSON (never embed secrets).
+- Encryption key from env var `CHORUS_ENCRYPTION_KEY` (32-byte secret); AES-256-GCM.
+- OAuth flow hosted by Chorus core; auto-refresh on expiry; mark invalid on refresh failure.
+- Per-credential ACL (owner + shared users/teams).
+- `credential health` signal exposed in UI (last refresh time, next expiry, last error).
+
+### Flow Definition Format: OpenFlow-inspired but JSON-native
+Adopt Windmill's "OpenFlow" concept - publish a public JSON schema for Chorus flows. GitOps-friendly:
+- Flow = one directory, `flow.json` (or `flow.yaml`) + inline action configs.
+- Steps are modules: `script`, `action` (call an integration), `loop`, `branch`, `subflow`, `sleep`, `waitForEvent`.
+- Input spec at the top (like script inputs).
+- Optional `preprocessor` step and `failure_module`.
+
+Schema versioned (`version: "1.0"`) so Chorus runtime can evolve compatibly.
+
+### What to steal from each engine
+- **n8n**: test-vs-production webhook URL split. Credential model (separate store, ID-ref, env-driven encryption key). Declarative/programmatic integration duality.
+- **Activepieces**: sandboxed per-execution engine. WebSocket (or lightweight RPC) between worker and engine. Auto-MCP for every integration. Hot-reload dev.
+- **Windmill**: Postgres-as-queue with SKIP LOCKED. nsjail isolation. Single binary. Multi-language runtime (Deno, Python, Bash, Node). OpenFlow spec.
+- **Pipedream**: Unified "component" primitive. AI-generated integrations (Chorus Forge pattern). Generous per-execution resource limits.
+- **Inngest**: Step-based durable execution via replay. `step.sleep` / `step.waitForEvent` primitives. Two-queue-per-function architecture. Event-driven as first-class.
+- **Trigger.dev**: `/trigger` folder convention (code lives in user's repo, not in a proprietary editor). Idempotency-key-based subtask dedup.
+
+### What NOT to do
+- **Don't** run integrations in the worker process (n8n's weakness - one bad piece OOMs the worker).
+- **Don't** bet on CRIU for portability (Trigger.dev locks into Linux containers; Chorus should stay runtime-agnostic).
+- **Don't** use Redis unless you must. Postgres is enough until ~10M jobs/day (Windmill benchmarked past this).
+- **Don't** invent a proprietary flow format - publish an open JSON schema from day one.
+- **Don't** require a drag-drop UI before the CLI is solid. Windmill's success proves code/config-first is fine.
+- **Don't** skimp on the credential subsystem. It is the single highest-leverage correctness/security feature.
+- **Don't** conflate triggers and actions - keep the taxonomy explicit even if the implementation shares code paths.
+- **Don't** re-run completed steps under any circumstances (memoization is the contract; violating it breaks user assumptions about side effects).
+
+### Implementation order (for later waves)
+1. **Core engine**: single worker that can run a hardcoded flow with step memoization, pulling from Postgres queue.
+2. **Schedule + webhook triggers**: smallest viable trigger set.
+3. **Credential store + AES encryption**.
+4. **Integration SDK scaffolder** + first two declarative integrations (e.g., HTTP, Slack).
+5. **Flow JSON schema + CLI** (`chorus flow push/pull`).
+6. **Replay-based durable steps** (`step.run`, `step.sleep`).
+7. **Event triggers + `step.waitForEvent`**.
+8. **Per-execution sandbox** (nsjail on Linux, subprocess fallback elsewhere).
+9. **Auto-MCP surface** for all deployed actions.
+10. **Community piece registry**.
+
+---
+
+## Cross-check: What siblings should know
+- **scout-bravo (patch registries)**: note that Activepieces publishes pieces as separate npm packages in a monorepo (`packages/pieces/*`) - no separate package registry server. Windmill has a "Hub" that hosts flows/scripts as JSON. Inngest and Trigger.dev have no integration registries (they expect user code). Chorus's registry model should be "pieces = npm packages + central discovery service" (not proprietary storage).
+- **scout-charlie (error sigs + testing)**: the industry standard for error handling is per-step retry with exponential backoff + explicit failure module. Error signatures = { step_name, attempt, error_class, error_message, timestamp }. Inngest exposes error class taxonomy (NonRetriableError, RateLimitError). Chorus should mirror this.
+
+END OF RESEARCH REPORT
