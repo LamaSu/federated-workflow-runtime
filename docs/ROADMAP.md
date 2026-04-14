@@ -175,3 +175,68 @@ More specifically: the queue claim query is the riskiest diff. `SKIP LOCKED` in 
 - `docs/ARCHITECTURE.md` §12 open question #1 (migration path shape)
 
 ---
+
+## 3. nsjail / proper sandbox
+
+**Priority: 5.** Lowest ranked of the "real work" items, because the current subprocess model is genuinely sufficient for the MVP target user, and every sandbox hardening step creates cross-platform pain.
+
+### What it is
+
+Today, per `docs/ARCHITECTURE.md` §4.4, each Run executes in a fresh Node subprocess (`child_process.fork`). The subprocess has no access to the main runtime's memory, no shared filesystem other than what it inherits via `PATH`, and no persistent credential handle. Communication is stdin/stdout JSON lines.
+
+nsjail would wrap that subprocess in a Linux namespace jail: filesystem namespace (sees only a curated subset of `/`), PID namespace (can't see or signal sibling runs), network namespace (configurable egress), cgroup (RAM + CPU cap). Same subprocess code, hardened shell.
+
+**Platform asymmetry is the whole story here.** nsjail is Linux-only. The MVP priority is cross-platform (Windows + macOS + Linux), so nsjail is deliberately behind a flag: `CHORUS_SANDBOX=nsjail` on Linux hosts, silently ignored elsewhere.
+
+### Trigger
+
+Build when **any one** of these fires:
+- First malicious-patch report. A user says "a patch from the registry tried to read my `.ssh/`" — even if blocked by our static AST gate, the fact of the attempt is the signal.
+- First enterprise security review. Someone in procurement says "we need defense-in-depth for the integration layer" and subprocess-only doesn't check their box.
+- CVE or exploit in `better-sqlite3`, `pg`, `node` itself, or one of our reference integrations that lets a malicious patch exfiltrate data from the subprocess.
+- **Hostile cassette discovered in the wild.** A patch's replay cassette that tries to side-channel via DNS or filesystem.
+
+Until one of these fires, we are fighting shadows. The subprocess model already prevents the 90% case (accidental credential leak into patch code).
+
+### Priority rank: 5
+
+Below Postgres (4) because Postgres has a measurable trigger; sandbox hardening has a *reactive* trigger. Above UI (6) because when the trigger fires it fires urgently — enterprise security reviews are not "wait 6 months" affairs.
+
+### First 3-5 concrete steps
+
+**Day 1** — Write `packages/runtime/src/sandbox/nsjail.ts`. Thin wrapper around `nsjail -C /etc/chorus-nsjail.cfg -- node run-step.js`. The config file (`nsjail.cfg`) lists allowed mounts, PID limit, CPU time limit, and `/tmp` isolation per-run.
+
+**Day 2** — Extend the `Sandbox` interface in `packages/runtime/src/sandbox/index.ts` (currently just subprocess). Add `NsjailSandbox` as a driver. Runtime config reads `CHORUS_SANDBOX=subprocess|nsjail` env var; defaults to subprocess.
+
+**Day 3** — Build a Docker image that includes nsjail + Node 20 + Chorus CLI. This is the reference deployment target for Linux users who want the hardening. Tag as `chorus:latest-hardened` on the registry.
+
+**Day 4** — Write the test suite. Real nsjail-wrapped runs on a Linux CI runner (GitHub Actions `ubuntu-latest`). Verify: subprocess can't open `/etc/passwd`, can't fork more than N children, can't exceed RAM cap, can still make HTTP requests to allowlisted hosts.
+
+**Day 5** — Write a threat-model update to `ARCHITECTURE.md` §10. What new defenses does nsjail add? What does it NOT defend against (e.g., it doesn't protect against a patch calling `process.exit(0)` to skip steps — still need the static AST gate).
+
+**Day 6-7** — Security audit. Ideally external (hire a pentest firm for one day). Minimum: have a second implementer read the config and try to escape.
+
+### Estimated effort
+
+**4 engineer-days for Linux implementation + 3 for audit = 7 engineer-days.** External audit is $5-10k if we hire. Without the audit, we ship a feature with "this hardens things" as documentation and hope we got the config right. **Do not skip the audit.**
+
+### Risk if delayed
+
+Medium-to-low for MVP users; high if enterprise adoption takes off. Every enterprise security review that comes in between now and this shipping is a deal in slow motion. One bad review can kill a 6-month sales cycle.
+
+**Concrete risk:** the canary ladder (§5.4) + revocation fast-path (§5.6) + signed patches (§5.3) stack assumes the sandbox is *one layer* of defense. If someone finds a sandbox escape in the subprocess model before we ship nsjail, the cascade is: revoke the patch → rotate credentials → audit logs → apology post. All recoverable, but painful.
+
+### Risk if rushed
+
+High. nsjail config is notoriously finicky. A too-lax config gives a false sense of security; a too-strict config breaks legitimate integrations that need filesystem access (e.g., a patch that reads a local CSV). Ship a too-strict config in v1.1 and we spend the next three months weakening it in patches, each of which needs its own threat review.
+
+More subtly: we have the option of *not building this* by choosing to mark nsjail out of scope and document the subprocess model as "sufficient for single-user single-tenant use." That's an honest positioning. **If the trigger fires and it's enterprise-procurement-driven, we should seriously consider if the right answer is "Chorus is not for your threat model" rather than shipping half-baked hardening.**
+
+### References
+
+- `docs/ARCHITECTURE.md` §4.4 (current sandbox model)
+- `docs/ARCHITECTURE.md` §10 (threat model — enumerate what nsjail adds)
+- `docs/ARCHITECTURE.md` §10.4 (currently lists nsjail as deferred)
+- `docs/ARCHITECTURE.md` §12 open question #2 (is nsjail enough, or do we need gVisor?)
+
+---
