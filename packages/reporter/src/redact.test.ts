@@ -63,9 +63,8 @@ describe("redactString — 9 PII patterns", () => {
   });
 
   it("(5) redacts Stripe-style secret keys (sk_live_/sk_test_)", () => {
-    const out = redactString(
-      `stripe key: ${["sk", "live", "51abcdEfghIjkLmnoPqrstuVwxyz0123456789"].join("_")}`,
-    );
+    const fakeKey = ["sk", "live", "51abcdEfghIjkLmnoPqrstuVwxyz0123456789"].join("_");
+    const out = redactString(`stripe key: ${fakeKey}`);
     expect(out).not.toContain("sk_live_51abcd");
     expect(out).toContain("{redacted:");
   });
