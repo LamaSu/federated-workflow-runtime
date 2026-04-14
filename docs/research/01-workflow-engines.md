@@ -190,3 +190,100 @@ Key facts:
 Design takeaway: Postgres-as-queue is the single biggest architectural insight. Nothing about Redis/Bull is actually better — Postgres gives you stronger ACID with SKIP LOCKED. Chorus should consider this seriously. Also: an "OpenFlow"-like public spec for Chorus flows lets third parties build editors, validators, and runners without touching the core.
 
 ---
+
+## Pipedream AI Integration Generation - WebSearch synthesis
+Sources:
+- https://pipedream.com/docs/components/api
+- https://pipedream.com/docs/connect/components
+- https://pipedream.com/blog/build-workflows-faster-with-ai/
+- https://pipedream.com/connect
+
+Key facts:
+- **Components = unified primitive**: triggers + actions are both "components" — self-contained executable units. End users configure inputs → output available to downstream steps.
+- **2500+ integrations**. AI code generation understands the Pipedream Component API and reads target-app API docs.
+- **AI generation workflow**: user describes intent → LLM generates component code → runs in sandbox → iterates. Code generation service has a schema-aware prompt template + access to a corpus of existing components for few-shot examples.
+- **Runtime**: serverless, isolated per workflow. Up to 10GB memory, 750s execution time. Supports Node.js (primary), Python, Go, Bash. npm's 400k packages usable.
+- **Isolation per workflow execution**: can't confirm V8 isolates specifically from public docs, but the language is "isolated environment per instance" — almost certainly Firecracker or similar microVM given resource envelope.
+- **Connect + MCP architecture**: credentials isolated from LLMs and client code. Pipedream Connect = white-label embedded OAuth; MCP surface exposes actions to AI agents without leaking creds.
+- **Component registry**: public GitHub repo `PipedreamHQ/pipedream`, but the AI-gen lives inside the Pipedream platform (closed source).
+
+Design takeaway: Pipedream's unified "component" concept is cleaner than Trigger/Action split. Also: AI-generated integrations are table stakes for 2026 — Chorus should ship an AI Forge that reads an OpenAPI spec or docs URL and generates an integration. (Mirrors the existing `/forge` in the user's harness.)
+
+---
+
+## Inngest Durable Execution - WebSearch synthesis
+Sources:
+- https://www.inngest.com/docs/learn/how-functions-are-executed
+- https://www.inngest.com/blog/how-durable-workflow-engines-work
+- https://github.com/inngest/inngest
+- https://www.inngest.com/docs/features/inngest-functions/steps-workflows
+
+Key facts:
+- **Event-driven**: everything starts from an event. Functions register as consumers with pattern-matching subscription. No cron-first mental model; cron = "scheduled event".
+- **Architecture**:
+  - **Event API** (HTTP): auth via Event Keys, publishes to event stream.
+  - **Event Stream**: buffer (Redpanda/Kafka-esque).
+  - **Runner**: schedules function runs, maintains state, handles flow control (rate limits, debounce, throttle), manages waitForEvent pauses.
+  - **Executor**: runs function invocations + step-by-step execution; retries; writes incremental state.
+  - **State Store**: persists event(s), step outputs, step errors for every in-flight run.
+- **Durable execution via steps**: `step.run("name", fn)` / `step.sleep` / `step.waitForEvent` / `step.invoke`. Each step:
+  - Runs as an isolated unit.
+  - Its output is memoized by step name.
+  - Re-invoking the function re-plays memoized steps (cheap); only unrun steps execute.
+  - Failures retry the specific step, not the whole function.
+- **Execution model**: "Function as replayable state machine." Function body is executed repeatedly — each time advances one more step. Function body is pure code (TS, Go, Python, Elixir SDKs). SDK exports `step` object as the primary API.
+- **Long-running**: `step.sleep("7d", ...)` is free — the function is unloaded, Runner schedules resume after wall-clock elapses.
+- **Flow control built-in**: rate limit, debounce, throttle, concurrency — all declarative on the function definition.
+
+Design takeaway: Inngest's step-based durable execution is a LEAP over n8n's monolithic workflow runs. For AI-agent workflows that may wait for human approval, poll external APIs for hours, or retry flaky LLM calls, this is the ONLY sane model. Chorus's runtime should adopt:
+1. Step memoization via deterministic step names.
+2. Replay-based resumption.
+3. `step.sleep` + `step.waitForEvent` primitives.
+4. Per-step retry policy, not per-workflow.
+
+---
+
+## Inngest - Durable Engine Deep Dive
+Source: https://www.inngest.com/blog/how-durable-workflow-engines-work
+
+Key facts:
+- **Durable engines = memoization engines**. That's the whole trick: steps are replayable because their outputs are recorded.
+- **Execution loop**:
+  1. Workflow init → enqueue job with event data.
+  2. Executor reads queue, invokes workflow body (user code).
+  3. SDK checks state map: previously completed steps return cached output (skip).
+  4. New step runs → state atomically updated → next iteration enqueues.
+- **Step primitives**:
+  - `step.run(name, fn)` — single transaction, runs once on success, retries on failure.
+  - `step.sleep(name, duration)` / `step.sleepUntil(name, date)` — function suspends; Runner schedules resume. No compute cost while sleeping.
+  - `step.waitForEvent(name, { event, match, timeout })` — pause on external event; timeout resolves to null.
+- **Queue architecture**: Inngest creates TWO queues per deployed function (likely primary + retry). Workers are shared-nothing. Guarantees oldest-first.
+- **State is per-run, per-step**: each step's output stored by deterministic step name hash.
+- **SDK is the clever part**: user-facing API is synchronous-looking `await step.run(...)` but under the hood each `step.*` call is a yield point that may throw a "StepFlowControlError" causing the function body to unwind. The worker re-invokes the function with updated state map; the SDK replays execution up to the next unrun step.
+
+This is equivalent to Temporal's durable execution model, but with much smaller SDK surface.
+
+---
+
+## Trigger.dev v3 - WebSearch synthesis
+Sources:
+- https://trigger.dev/docs/how-it-works
+- https://trigger.dev/blog/v3-announcement
+- https://github.com/triggerdotdev/trigger.dev
+- https://vadim.blog/trigger-dev-deep-dive
+
+Key facts:
+- **Container + CRIU**: v3's BIG change vs v2 is "no-timeout" durable execution via **CRIU** (Checkpoint/Restore In Userspace) on Linux. Running containers get frozen to disk mid-task and restored later — possibly on different machines. This is how `step.sleep("7d")` costs nothing.
+- **Architecture**: task queue + scheduler + worker pool + logging.
+- **Task definition**: code lives in `/trigger` folders in user's codebase; SDK exports `task({ id, run: async ({ payload, io }) => {...} })`. Deployed from user's repo via the Trigger.dev CLI.
+- **Task types**: regular + scheduled. Scheduled = cron.
+- **Durability via checkpoint-resume + idempotency keys**: 
+  - Workflows decomposed into subtasks, each with an idempotency key.
+  - Output cached by idempotency key.
+  - On failure, only failed subtask and descendants retry.
+- **Multi-tenant queue** with concurrency rules: sequential/parallel, concurrency keys for per-user/per-tier isolation.
+- **Key differentiator vs Inngest**: Trigger.dev checkpoints PROCESS state (via CRIU), Inngest REPLAYS function body. CRIU is more "magical" but has platform constraints (Linux containers only, no Deno/Bun without extra work). Inngest replay is more portable but requires deterministic-ish function bodies.
+
+Design takeaway: CRIU is overkill for Chorus's MVP. Replay-based durable execution (Inngest model) is simpler and language-portable. Adopt step memoization + keep the CRIU option for later as an optimization for workflows with large in-memory state that's expensive to rehydrate.
+
+---
