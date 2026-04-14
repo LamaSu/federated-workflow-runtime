@@ -108,3 +108,70 @@ Ship auto-MCP before the trigger fires and we have 3 problems:
 - `docs/ARCHITECTURE.md` §12 open question #3 (MCP surface shape)
 
 ---
+
+## 2. Postgres migration path
+
+**Priority: 4.** Lower than you'd expect for a "scale" feature — because the trigger is quantifiable and SQLite's ceiling is genuinely high. We win by waiting.
+
+### What it is
+
+Today, `@chorus/runtime` persists state to SQLite via `better-sqlite3` (see `docs/ARCHITECTURE.md` §4.5). The schema lives in `packages/runtime/src/db/schema.sql`. Queue semantics rely on `UPDATE ... LIMIT 1 RETURNING` for single-node claim (§4.1).
+
+The migration path is a one-way CLI:
+
+```
+chorus migrate --to postgres --url postgres://user:pass@host/chorus
+```
+
+It creates the Postgres schema, copies rows in a defined order (credentials → workflows → runs → steps → events), switches the backend config, and runs a sanity check (every pending run is re-queryable). Reverse migration is **not supported**; users pick a direction and commit.
+
+### Trigger
+
+Build when **the first real user hits one of these** (not hypothetical, actual):
+- **100k+ rows in the `runs` table** on a single node (empirically where SQLite write contention starts to matter for this access pattern; sustained WAL fsync ≈ 400/s on commodity SSD).
+- **50+ concurrent in-flight runs** (SQLite handles this but tail latency starts to climb past ~30).
+- **A user asks** because they want HA across two nodes (MVP is single-node; HA implies a shared queue, which implies Postgres per §4.1).
+- **SQLite file size > 5 GB** (technically fine, but backup/restore starts to feel painful for ops teams).
+
+These are measurable. The runtime should surface these metrics in `chorus status` so users and operators see the thresholds approaching. **Action item (free):** add a `warn_on_scale_threshold` config flag that logs when any of the above is breached. One commit, ~20 lines. Do this in v1.1.
+
+### Priority rank: 4
+
+Below auto-MCP (1), npm publication (2), event triggers (3), differential testing (3). Postgres migration is *infrastructure polish*, not a user-visible feature. The user who hits the trigger is already successful — they're a good problem to have, not an urgent one. No churn risk while we wait, because SQLite is fast enough that users who haven't hit the trigger haven't noticed anything.
+
+### First 3-5 concrete steps
+
+**Day 1** — Write `packages/runtime/src/db/postgres/schema.sql`. It's `schema.sql` translated: `INTEGER PRIMARY KEY AUTOINCREMENT` becomes `SERIAL PRIMARY KEY`, `TEXT` stays, `JSON` stays (Postgres `jsonb`). Foreign keys already correct in the SQLite version.
+
+**Day 2** — Abstract the DB layer. Today the code calls `better-sqlite3` directly. Introduce `packages/runtime/src/db/driver.ts` with a minimal interface (`query`, `queryOne`, `exec`, `transaction`). Implement `SqliteDriver` and `PostgresDriver` (using `pg` or `postgres.js`). No behavior change in this diff; swap the call sites.
+
+**Day 3** — Rewrite the queue claim query. SQLite uses `UPDATE ... LIMIT 1 RETURNING`; Postgres uses `SELECT ... FOR UPDATE SKIP LOCKED`. Both are in `packages/runtime/src/queue.ts`. Keep the SQL as a driver-specific template.
+
+**Day 4** — Write `packages/cli/src/commands/migrate.ts`. Order: credentials (blocking), workflows (blocking), runs (chunked 1000 at a time), steps (chunked 10000 at a time), events. Resume-safe (checkpoint table on the target).
+
+**Day 5** — Integration test. Spin up Postgres in Docker, migrate a known SQLite fixture, run the full `@chorus/runtime` test suite against the Postgres backend. **All 81 existing runtime tests must pass on Postgres** before we ship this.
+
+### Estimated effort
+
+**5 engineer-days.** Schema port is trivial. The driver abstraction is where the work is. The test-on-both-backends discipline is non-negotiable — any regression in SQLite mode because of a Postgres-driven change is a worse outcome than the feature itself.
+
+### Risk if delayed
+
+Low. SQLite is genuinely fast enough; the user who needs Postgres is also the user sophisticated enough to run their own workaround (custom driver in their fork) for a month while we build it properly.
+
+**One concrete risk:** if someone tries to run Chorus on their team's shared infrastructure (GitOps-deployed, CI pipeline triggering flows, multiple deployments pointing at the same state) — they hit a wall at SQLite's single-writer limit. Mitigation: clear doc note in `ARCHITECTURE.md` §11 (already there) saying "multi-writer is v2."
+
+### Risk if rushed
+
+High. Postgres migrations are the class of feature where "built but untested at scale" is worse than "not built." If we ship this in v1.1 without a real user pushing data through it, we'll find out about row-order bugs, deadlocks on the queue claim query, and WAL vs. replication weirdness in production. We burn trust.
+
+More specifically: the queue claim query is the riskiest diff. `SKIP LOCKED` in Postgres has different fairness semantics than SQLite's `UPDATE ... LIMIT 1`. A workflow with 200 parallel retries could starve the queue if we get the `FOR UPDATE` placement wrong. **Write this against a synthetic 10k-run fixture before a real user sees it.**
+
+### References
+
+- `docs/ARCHITECTURE.md` §4.1 (queue & executor — the claim query)
+- `docs/ARCHITECTURE.md` §4.5 (SQLite schema — the translation input)
+- `docs/ARCHITECTURE.md` §11.3 (Postgres marked as v2)
+- `docs/ARCHITECTURE.md` §12 open question #1 (migration path shape)
+
+---
