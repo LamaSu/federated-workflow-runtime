@@ -378,3 +378,71 @@ Another gotcha: the 2 reference integrations (`http-generic`, `slack-send`) live
 - `docs/ARCHITECTURE.md` §12 open question #9 (Windows MSI vs npm)
 
 ---
+
+## 6. Event triggers + `step.waitForEvent`
+
+**Priority: 3** (tied with differential testing). This is the feature that unlocks the "async workflow" use case which every integration with webhooks or async job polling needs.
+
+### What it is
+
+MVP ships three trigger types per `ARCHITECTURE.md` §4.2: `webhook`, `cron`, `manual`. What's missing:
+
+1. **`event` trigger.** A workflow wakes up when an arbitrary named event fires. Other workflows or external systems can emit these events via the runtime API.
+2. **`step.waitForEvent`.** Inside a workflow, pause until a matching event arrives. This is the dual — triggers start workflows; waitForEvent resumes paused workflows.
+
+The use case both solve: async integrations. Example — a workflow calls Stripe to initiate a 3DS card challenge, which is an async flow (Stripe posts a webhook back when the user completes 3DS). Today, the workflow author has to poll. With `step.waitForEvent`, the workflow pauses on the event and resumes durably when it arrives, respecting the same replay semantics as `step.run`.
+
+Inngest has this (`step.waitForEvent`). Trigger.dev has this (`wait.forEvent`). n8n has this via "Wait for webhook" node. Chorus MVP skips it. v1.1 cannot.
+
+### Trigger
+
+Build when **any one** of these fires:
+- **First integration author says "I can't express my flow without this."** Likely candidates: Stripe 3DS, OAuth callback flows, long-running external job triggers (video transcoding, ML inference).
+- **First community patch is a hacky polling workaround.** That's the smoke signal that the primitive is missing.
+- **We write integration #6 (out of the first 5 planned + 1 more) and realize 3 of them have hacks for async.** This is an internal trigger — our own dogfooding.
+- **2 months post-launch,** whichever comes first. This is a soft time-based trigger reflecting "probably needed by then."
+
+### Priority rank: 3
+
+Tied with differential testing (4). Different audiences — this is user-facing (workflow authors feel the absence), differential testing is registry-facing (only registry maintainers feel the absence). Order of shipping: whichever hits its trigger first. Likely event triggers hit first because they block real workflows; differential testing degrades slowly.
+
+Above Postgres (4) and sandbox (5) because it's a capability missing from v1 that competitors have. It's the kind of missing feature a reviewer or potential user notices immediately.
+
+### First 3-5 concrete steps
+
+**Day 1** — Add `event` to the trigger type enum in `packages/core/src/types.ts`. The runtime already has trigger routing in `packages/runtime/src/triggers.ts`. Event triggers register a subscription; the executor polls a new `events` table (or subscribes to a pub/sub channel).
+
+**Day 2** — SQLite schema change: `events` table with `(id, name, payload_json, fired_at, consumed_by_run_id)`. Events are durable until a matching workflow picks them up or they TTL out (default 7 days). Emit via new runtime API `runtime.emit(name, payload)`.
+
+**Day 3** — `step.waitForEvent` in the runtime's executor. The executor, when it encounters a `waitForEvent(name, matchFn, timeoutMs)` call, writes a checkpoint to the `steps` table with status `waiting` and stops. The event-listener side queries `steps` for `waiting` status and a matching event name, applies `matchFn`, resumes the run on hit.
+
+**Day 4** — Timeout semantics. If an event doesn't arrive within `timeoutMs`, the workflow resumes with a timeout error. Replay semantics must hold: on replay, if the event already arrived, we deterministically use the stored payload; if the timeout fired, we deterministically error. No wall-clock peeking.
+
+**Day 5** — Test matrix. Three scenarios: (1) event arrives before the step; runtime should pick it up immediately. (2) event arrives during the step's wait; resume within 1s. (3) timeout fires; error path. Plus replay: kill the process mid-wait, restart, verify the wait resumes without double-firing side effects.
+
+### Estimated effort
+
+**3 agent-days.** The primitives exist — the executor already has pause/resume for `step.sleep`. Adding event-triggered resume is a variant of sleep, not a new subsystem.
+
+### Risk if delayed
+
+Medium. Every month without this is a month where integration authors either hack it with polling (wasted retries) or skip building the integration. The third scenario — a would-be community contributor abandons their Stripe integration because they can't express the 3DS flow — is the killer.
+
+**Concrete risk:** the first real Stripe integration ships as a polling loop. It works but feels dumb. Reputation hit. First impressions set the bar for the ecosystem — "Chorus integrations feel clunky because the runtime is underpowered" is a hard narrative to escape once it sticks.
+
+### Risk if rushed
+
+Low. The design space is narrow — Inngest, Trigger.dev, n8n, Temporal all have essentially the same shape. We're implementing a known pattern.
+
+**One subtle gotcha:** event matching. A workflow says `waitForEvent("payment.completed", event => event.session_id === sessionId)`. The match function runs inside the executor on each candidate event. If the match function is slow or non-deterministic, replay breaks. Make match functions **pure** — no closures over external state, no async. Document this loudly.
+
+**Another gotcha:** event fan-out. If a workflow emits `runtime.emit("job.done", {...})` and 500 workflows are waiting for it, we need to wake them all. Single-node is fine (query the `steps` table, resume each). Multi-node (v2, §11.3 cross-node event bus) needs a real pub/sub. Defer that concern; single-node event triggers are v1.1, cross-node is v2.
+
+### References
+
+- `docs/ARCHITECTURE.md` §4.2 (trigger types — adds `event`)
+- `docs/ARCHITECTURE.md` §4.3 (durable execution — waitForEvent is a variant)
+- `docs/ARCHITECTURE.md` §11.2 (listed as v1.1 feature)
+- `docs/research/01-workflow-engines.md` (scout-alpha's notes on Inngest/Trigger.dev wait primitives)
+
+---
