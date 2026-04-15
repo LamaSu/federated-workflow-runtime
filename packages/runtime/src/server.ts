@@ -103,13 +103,18 @@ export function createServer(opts: CreateServerOptions): ChorusServer {
   webhookRegistry.installRoutes(app);
 
   // Read-only JSON API for agent-built dashboards (see ./api).
+  // When an event dispatcher is wired, POST /api/events + event routes
+  // also mount (see ./api/events.ts).
   const apiToken =
     opts.apiToken !== undefined
       ? opts.apiToken
       : process.env.CHORUS_API_TOKEN && process.env.CHORUS_API_TOKEN.length > 0
         ? process.env.CHORUS_API_TOKEN
         : null;
-  registerApiRoutes(app, db, { apiToken });
+  registerApiRoutes(app, db, {
+    apiToken,
+    eventDispatcher: opts.eventDispatcher,
+  });
 
   // Health & introspection routes -------------------------------------------
   app.get("/health", async () => ({
@@ -225,6 +230,12 @@ export function createServer(opts: CreateServerOptions): ChorusServer {
       const result = await executor.run(workflow, claimed.id, payload);
       if (result.status === "success") {
         queue.complete(claimed.id, "success");
+      } else if (result.status === "waiting") {
+        // Run is parked on a waiting_steps row. Release it back to the
+        // queue without a next_wakeup — the event dispatcher's emit/expire
+        // paths will call queue.release() when the waiting_steps row
+        // resolves, making the run immediately re-claimable. See §6.
+        queue.release(claimed.id);
       } else {
         queue.complete(claimed.id, "failed", { error: result.error ?? "unknown failure" });
       }
