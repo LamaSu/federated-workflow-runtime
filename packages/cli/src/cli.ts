@@ -8,7 +8,9 @@
  *   chorus report [--json]
  *   chorus patch <list|apply|propose|revoke>
  *   chorus validate <file...>
- *   chorus credentials <add|list|remove> ...
+ *   chorus credentials <add|list|remove|test|pat-help|types|migrate> ...
+ *   chorus event <fire|watch|list-waiting> ...
+ *   chorus mcp <list|generate|serve|config> ...
  *
  * This file wires commander flags to the command modules in ./commands/.
  */
@@ -26,10 +28,20 @@ import {
 import {
   credentialsAdd,
   credentialsList,
+  credentialsMigrate,
+  credentialsPatHelp,
   credentialsRemove,
+  credentialsTest,
+  credentialsTypes,
   type CredentialType,
 } from "./commands/credentials.js";
 import { fireEvent, watchEvents, listWaiting } from "./commands/event.js";
+import {
+  mcpList,
+  mcpGenerate,
+  mcpServe,
+  mcpConfig,
+} from "./commands/mcp.js";
 
 const VERSION = "0.1.0";
 
@@ -217,6 +229,56 @@ export function buildProgram(): Command {
       process.exit(code);
     });
 
+  // New catalog-aware subcommands (docs/CREDENTIALS_ANALYSIS.md §6) ---------
+
+  creds
+    .command("test <ref>")
+    .description("test a stored credential via its integration's testCredential (ref = <integration>:<name>)")
+    .option("--json", "output JSON (for CI / agents)")
+    .action(async (ref: string, opts: { json?: boolean }) => {
+      const code = await credentialsTest({ ref, json: opts.json });
+      process.exit(code);
+    });
+
+  creds
+    .command("pat-help <integration>")
+    .description("open the docs URL for a credential type (solves 'where do I get this PAT?')")
+    .option("--type <typeName>", "specific credentialType within the integration")
+    .action(
+      async (
+        integration: string,
+        opts: { type?: string },
+      ) => {
+        const code = await credentialsPatHelp({
+          integration,
+          type: opts.type,
+        });
+        process.exit(code);
+      },
+    );
+
+  creds
+    .command("types")
+    .description("list declared credential types across integrations")
+    .option("--integration <name>", "restrict to one integration")
+    .option("--json", "output JSON (for mcp-papa / agents)")
+    .action(async (opts: { integration?: string; json?: boolean }) => {
+      const code = await credentialsTypes({
+        integration: opts.integration,
+        json: opts.json,
+      });
+      process.exit(code);
+    });
+
+  creds
+    .command("migrate <id>")
+    .description("reassign a credential row's credential_type_name (legacy → catalog entry)")
+    .requiredOption("--to <typeName>", "target credential type name")
+    .action(async (id: string, opts: { to: string }) => {
+      const code = await credentialsMigrate({ id, to: opts.to });
+      process.exit(code);
+    });
+
   // ── event ────────────────────────────────────────────────────────────────
   const evt = program
     .command("event")
@@ -259,6 +321,48 @@ export function buildProgram(): Command {
     .option("--json", "output JSON")
     .action(async (opts: { json?: boolean }) => {
       const code = await listWaiting({ json: opts.json });
+      process.exit(code);
+    });
+
+  // ── mcp ───────────────────────────────────────────────────────────────────
+  const mcp = program
+    .command("mcp")
+    .description(
+      "auto-MCP: expose Chorus integrations as MCP tools (list | generate | serve | config)",
+    );
+
+  mcp
+    .command("list")
+    .description("list installed integrations and their MCP-readiness")
+    .option("--json", "output JSON")
+    .action(async (opts: { json?: boolean }) => {
+      const code = await mcpList({ json: opts.json });
+      process.exit(code);
+    });
+
+  mcp
+    .command("generate <integration>")
+    .description("generate a standalone MCP server scaffold for an integration")
+    .option("--out <dir>", "override output directory")
+    .action(async (integration: string, opts: { out?: string }) => {
+      const code = await mcpGenerate({ integration, out: opts.out });
+      process.exit(code);
+    });
+
+  mcp
+    .command("serve <integration>")
+    .description("run an MCP server for the integration inline (stdio transport)")
+    .action(async (integration: string) => {
+      const code = await mcpServe({ integration });
+      process.exit(code);
+    });
+
+  mcp
+    .command("config <integration>")
+    .description("print the .mcp.json snippet for a generated server (no filesystem writes)")
+    .option("--out <dir>", "path used to compute the server's index.js location")
+    .action(async (integration: string, opts: { out?: string }) => {
+      const code = await mcpConfig({ integration, out: opts.out });
       process.exit(code);
     });
 

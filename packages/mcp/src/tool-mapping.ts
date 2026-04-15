@@ -22,8 +22,19 @@
  * operation's `inputSchema` (which, per core/schemas.ts line 96, is already a
  * plain JSONSchema `z.record(z.unknown())` — we pass it through, no Zod
  * conversion needed).
+ *
+ * `CredentialTypeDefinition` / `CredentialField` are imported from
+ * `@chorus/core` (landed by credentials-oscar in
+ * `packages/core/src/credential-catalog.ts`). Per docs §7.4: "`mcp-papa`
+ * needs `IntegrationManifest.credentialTypes: CredentialTypeDefinition[]`
+ * — that's it."
  */
-import type { IntegrationManifest, OperationDefinition } from "@chorus/core";
+import type {
+  CredentialField,
+  CredentialTypeDefinition,
+  IntegrationManifest,
+  OperationDefinition,
+} from "@chorus/core";
 
 // ── MCP tool shape ──────────────────────────────────────────────────────────
 
@@ -63,46 +74,23 @@ export type ChorusToolBinding =
 
 export type CredentialVerb = "list_credentials" | "configure" | "authenticate" | "test_auth";
 
-// ── Credential type shape (duck-typed) ──────────────────────────────────────
+// ── Credential type re-exports ──────────────────────────────────────────────
 
 /**
- * Duck-typed view of a CredentialTypeDefinition. credentials-oscar owns the
- * canonical Zod schema; this interface is the subset tool-mapping needs.
- *
- * When credentials-oscar ships `CredentialTypeDefinition` in `@chorus/core`,
- * this shape is a compatible upcast — we can drop to importing theirs by
- * swapping the import, no handler changes.
+ * Back-compat aliases for the canonical credential types. External callers
+ * that imported these view types from `@chorus/mcp` continue to work; they
+ * now point at credentials-oscar's canonical `@chorus/core` exports.
  */
-export interface CredentialTypeView {
-  name: string;
-  displayName: string;
-  authType: "none" | "apiKey" | "oauth2" | "basic" | "bearer";
-  fields?: CredentialFieldView[];
-  description?: string;
-  documentationUrl?: string;
-}
-
-export interface CredentialFieldView {
-  name: string;
-  displayName: string;
-  type: "string" | "password" | "url" | "number" | "boolean" | "select";
-  required?: boolean;
-  description?: string;
-  deepLink?: string;
-  default?: string | number | boolean;
-  options?: Array<{ value: string; label: string }>;
-  oauthManaged?: boolean;
-}
+export type CredentialTypeView = CredentialTypeDefinition;
+export type CredentialFieldView = CredentialField;
 
 /**
- * Duck-typed view of a manifest that MAY have `credentialTypes`. When
- * credentials-oscar extends IntegrationManifestSchema with `credentialTypes`,
- * this cast becomes load-bearing; until then, we synthesize a legacy type
- * from `authType`.
+ * Alias for `IntegrationManifest`. Historically this was a duck-typed
+ * extension when `credentialTypes` was optional; credentials-oscar's
+ * upgraded `IntegrationManifest` now includes it as a (defaulted) required
+ * field, so the alias is structural — both names resolve to the same type.
  */
-export interface ManifestWithCredentialTypes extends IntegrationManifest {
-  credentialTypes?: CredentialTypeView[];
-}
+export type ManifestWithCredentialTypes = IntegrationManifest;
 
 // ── Operation → tool ────────────────────────────────────────────────────────
 
@@ -442,7 +430,9 @@ function synthesizeLegacyCredentialType(
   manifest: IntegrationManifest,
 ): CredentialTypeView {
   const authType = manifest.authType;
-  const baseName = `${manifest.name}Legacy`;
+  // CredentialTypeDefinition.name regex: ^[a-zA-Z][a-zA-Z0-9]*$ — no hyphens.
+  // Integration names like "slack-send" → "slacksendLegacy" for the type name.
+  const baseName = `${manifest.name.replace(/[^a-zA-Z0-9]/g, "")}Legacy`;
   const displayName = `${manifest.name} (legacy ${authType})`;
   const docs = manifest.docsUrl;
 
@@ -462,6 +452,7 @@ function synthesizeLegacyCredentialType(
             displayName: authType === "apiKey" ? "API Key" : "Bearer Token",
             type: "password",
             required: true,
+            oauthManaged: false,
             description: `The ${authType} secret. Stored encrypted with CHORUS_ENCRYPTION_KEY.`,
           },
         ],
@@ -479,12 +470,14 @@ function synthesizeLegacyCredentialType(
             displayName: "Username",
             type: "string",
             required: true,
+            oauthManaged: false,
           },
           {
             name: "password",
             displayName: "Password",
             type: "password",
             required: true,
+            oauthManaged: false,
           },
         ],
       };

@@ -11,7 +11,10 @@ import {
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 
-/** Minimal slack-send-ish manifest WITHOUT credentialTypes (legacy shape). */
+/**
+ * Minimal slack-send-ish manifest WITHOUT credentialTypes (legacy shape —
+ * `credentialTypes` is an empty array, triggering synthesizeLegacy).
+ */
 const legacySlackManifest: IntegrationManifest = {
   name: "slack-send",
   version: "0.1.0",
@@ -19,6 +22,7 @@ const legacySlackManifest: IntegrationManifest = {
   authType: "bearer",
   baseUrl: "https://slack.com/api",
   docsUrl: "https://api.slack.com/methods/chat.postMessage",
+  credentialTypes: [],
   operations: [
     {
       name: "postMessage",
@@ -55,6 +59,15 @@ const upgradedSlackManifest: ManifestWithCredentialTypes = {
       authType: "oauth2",
       description: "Bot token via OAuth 2.0",
       documentationUrl: "https://api.slack.com/authentication/oauth-v2",
+      oauth: {
+        authorizeUrl: "https://slack.com/oauth/v2/authorize",
+        tokenUrl: "https://slack.com/api/oauth.v2.access",
+        scopes: ["chat:write"],
+        pkce: true,
+        clientAuthStyle: "header",
+        redirectPath: "/oauth/callback",
+        authorizeQueryParams: {},
+      },
       fields: [
         {
           name: "accessToken",
@@ -83,6 +96,7 @@ const upgradedSlackManifest: ManifestWithCredentialTypes = {
           displayName: "User Token",
           type: "password",
           required: true,
+          oauthManaged: false,
           description: "xoxp-... token",
           deepLink: "https://api.slack.com/legacy/custom-integrations/legacy-tokens",
         },
@@ -97,6 +111,7 @@ const httpGenericManifest: IntegrationManifest = {
   version: "0.1.0",
   description: "Make any HTTP request.",
   authType: "none",
+  credentialTypes: [],
   operations: [
     {
       name: "request",
@@ -260,7 +275,7 @@ describe("manifestToMcpTools", () => {
     // Legacy slack: bearer type → configure + list + test_auth (no OAuth so no authenticate).
     expect(names).toContain("slack-send__postMessage");
     expect(names).toContain("slack-send__list_credentials");
-    expect(names).toContain("slack-send__configure_slack-sendLegacy");
+    expect(names).toContain("slack-send__configure_slacksendLegacy");
     expect(names).toContain("slack-send__test_auth");
     expect(names).not.toContain("slack-send__authenticate");
   });

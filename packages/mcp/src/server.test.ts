@@ -49,6 +49,15 @@ const slackManifest: ManifestWithCredentialTypes = {
       authType: "oauth2",
       description: "Bot token via OAuth",
       documentationUrl: "https://api.slack.com/authentication/oauth-v2",
+      oauth: {
+        authorizeUrl: "https://slack.com/oauth/v2/authorize",
+        tokenUrl: "https://slack.com/api/oauth.v2.access",
+        scopes: ["chat:write"],
+        pkce: true,
+        clientAuthStyle: "header",
+        redirectPath: "/oauth/callback",
+        authorizeQueryParams: {},
+      },
       fields: [
         {
           name: "accessToken",
@@ -406,6 +415,7 @@ describe("type re-exports", () => {
       version: "0.0.1",
       description: "",
       authType: "none",
+      credentialTypes: [],
       operations: [],
     };
     expect(m.authType).toBe("none");
