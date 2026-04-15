@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CredentialTypeDefinitionSchema } from "./credential-catalog.js";
 
 // ── Triggers ────────────────────────────────────────────────────────────────
 
@@ -98,15 +99,40 @@ export const OperationDefinitionSchema = z.object({
   idempotent: z.boolean().default(false),
 });
 
-export const IntegrationManifestSchema = z.object({
-  name: z.string(),
-  version: z.string(),
-  description: z.string(),
-  authType: z.enum(["none", "apiKey", "oauth2", "basic", "bearer"]),
-  operations: z.array(OperationDefinitionSchema),
-  baseUrl: z.string().optional(),
-  docsUrl: z.string().optional(),
-});
+export const IntegrationManifestSchema = z
+  .object({
+    name: z.string(),
+    version: z.string(),
+    description: z.string(),
+    /**
+     * @deprecated in favor of `credentialTypes[0].authType`. Kept for v1.x
+     * back-compat — existing integrations won't recompile. New integrations
+     * should declare `credentialTypes` and set `authType` to match the
+     * first credentialType's `authType` (or "none" when there are no
+     * credential types).
+     */
+    authType: z.enum(["none", "apiKey", "oauth2", "basic", "bearer"]),
+
+    /**
+     * Per-integration credential type catalog. Most integrations declare
+     * ONE; Slack-like integrations with multiple auth options declare
+     * several. When omitted (default `[]`), the runtime synthesizes a
+     * single anonymous type matching the legacy `authType` so old
+     * integrations keep working.
+     */
+    credentialTypes: z.array(CredentialTypeDefinitionSchema).default([]),
+
+    operations: z.array(OperationDefinitionSchema),
+    baseUrl: z.string().optional(),
+    docsUrl: z.string().optional(),
+  })
+  .refine(
+    (m) =>
+      m.credentialTypes.length === 0 ||
+      m.credentialTypes.every((ct) => ct.authType === "none") ||
+      m.credentialTypes.some((ct) => ct.authType === m.authType),
+    { message: "manifest.authType must match at least one declared credentialType" },
+  );
 
 // ── Error Signatures (the crown jewel — Research 03 informs this) ────────────
 
@@ -185,7 +211,24 @@ export const PatchSchema = z.object({
 export const CredentialSchema = z.object({
   id: z.string(),
   integration: z.string(),
-  type: z.enum(["apiKey", "oauth2", "basic", "bearer"]),
+
+  /**
+   * NEW: which CredentialTypeDefinition in the integration this row is an
+   * instance of. Defaults to `''` for rows written before the catalog
+   * existed; the runtime's resolver (see `resolveCredentialType`) falls
+   * back to `authType` matching in that case. The DB backfill in
+   * `packages/runtime/src/db.ts` sets this to `<integration>:legacy`.
+   */
+  credentialTypeName: z.string().default(""),
+
+  /**
+   * Retained for back-compat and as a fast filter ("refresher only looks
+   * at oauth2"). Renamed in the TS schema from `type → authType` for
+   * clarity; the DB column stays `type` to avoid migration churn. See
+   * `docs/CREDENTIALS_ANALYSIS.md` §4.6.
+   */
+  authType: z.enum(["apiKey", "oauth2", "basic", "bearer"]),
+
   name: z.string(),
   encryptedPayload: z.string(),
   oauth2: z

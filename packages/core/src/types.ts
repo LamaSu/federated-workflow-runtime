@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import type { CredentialTestResult } from "./credential-catalog.js";
 import type {
   ConnectionSchema,
   CredentialSchema,
@@ -62,4 +63,26 @@ export type OperationHandler<TInput = unknown, TOutput = unknown> = (
 export interface IntegrationModule {
   manifest: IntegrationManifest;
   operations: Record<string, OperationHandler>;
+
+  /**
+   * Validate that a stored credential still works. Called by
+   * `chorus credentials test <id>` and by the CLI after
+   * `chorus credentials add` when the credential type has a `test:`
+   * declaration.
+   *
+   * The runtime decrypts the credential and hands it through
+   * `ctx.credentials` exactly as it does for operations. Implementations
+   * MUST NOT mutate state on the target service — pick a GET/introspection
+   * endpoint. Return shape is `CredentialTestResult`.
+   *
+   * Resolution precedence (docs/CREDENTIALS_ANALYSIS.md §4.4):
+   *   1. If the credential type has `test.viaOperation`, the runtime
+   *      invokes that operation with minimal input.
+   *   2. Else if this `testCredential` exists, the runtime calls it.
+   *   3. Else the CLI prints "no test available for this credential type".
+   */
+  testCredential?: (
+    credentialTypeName: string,
+    ctx: OperationContext,
+  ) => Promise<CredentialTestResult>;
 }
