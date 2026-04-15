@@ -1,0 +1,71 @@
+{
+  "name": "@chorus/mcp",
+  "version": "0.1.0",
+  "description": "Auto-MCP: expose Chorus integrations as MCP tools (generate or serve inline)",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./server": {
+      "import": "./dist/server.js",
+      "types": "./dist/server.d.ts"
+    },
+    "./serve": {
+      "import": "./dist/serve.js",
+      "types": "./dist/serve.d.ts"
+    },
+    "./generate": {
+      "import": "./dist/generate.js",
+      "types": "./dist/generate.d.ts"
+    },
+    "./tool-mapping": {
+      "import": "./dist/tool-mapping.js",
+      "types": "./dist/tool-mapping.d.ts"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "keywords": [
+    "chorus",
+    "mcp",
+    "model-context-protocol",
+    "workflow",
+    "integration",
+    "agent",
+    "claude",
+    "cursor",
+    "zed",
+    "n8n-alternative"
+  ],
+  "author": "Chorus contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LamaSu/federated-workflow-runtime.git",
+    "directory": "packages/mcp"
+  },
+  "bugs": {
+    "url": "https://github.com/LamaSu/federated-workflow-runtime/issues"
+  },
+  "homepage": "https://github.com/LamaSu/federated-workflow-runtime#readme",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsup src/index.ts src/server.ts src/serve.ts src/generate.ts src/tool-mapping.ts --format esm --dts --clean",
+    "test": "vitest run",
+    "dev": "tsup src/index.ts --format esm --dts --watch",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "dependencies": {
+    "@chorus/core": "*",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.23.0",
+    "zod-to-json-schema": "^3.23.0"
+  }
+}
