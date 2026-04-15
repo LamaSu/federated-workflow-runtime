@@ -12,13 +12,10 @@ Inventory of the existing credential subsystem, with file references for `creden
 
 ### 1.1 Encryption at rest
 
-- **Algorithm:** AES-256-GCM, on-disk layout `IV(12B) || TAG(16B) || CIPHERTEXT(N)`.
-  - Source: `C:\Users\globa\chorus\packages\runtime\src\credentials.ts` lines 13-16, 81-111.
-- **Key source:** `process.env.CHORUS_ENCRYPTION_KEY` (base64, 32 bytes). Fail-fast at boot.
-  - Source: `packages\runtime\src\credentials.ts` lines 38-47.
-- **Key rotation helper exists:** `rotateKey(blob, oldKey, newKey)` — decrypt-then-re-encrypt. No caller persists this yet; it is a library primitive.
-  - Source: `packages\runtime\src\credentials.ts` lines 117-120.
-- **Plaintext discipline:** decryption happens only in the per-Run subprocess; plaintext never touches disk, command-line, or logs. Documented in `docs\ARCHITECTURE.md` §4.6 lines 656-658.
+- **AES-256-GCM**, layout `IV(12B) || TAG(16B) || CIPHERTEXT(N)`. Source: `packages\runtime\src\credentials.ts` lines 13-16, 81-111.
+- **Key:** `process.env.CHORUS_ENCRYPTION_KEY` (base64, 32 bytes). Fail-fast at boot (lines 38-47).
+- **`rotateKey(blob, oldKey, newKey)`** primitive exists (lines 117-120); no caller persists yet.
+- **Plaintext discipline:** decryption only inside per-Run subprocess; never disk, CLI args, or logs. Documented in `docs\ARCHITECTURE.md` §4.6.
 
 ### 1.2 Storage schema
 
@@ -47,12 +44,9 @@ CREATE INDEX idx_oauth_expiring ON credentials(oauth_access_expires) WHERE type=
 
 ### 1.3 OAuth refresh
 
-- **Scheduler:** `OAuthRefresher` in `packages\runtime\src\oauth.ts`.
-- **Cadence:** 5-minute interval (DEFAULT_INTERVAL_MS, line 19), refreshes any credential expiring within 10 minutes (DEFAULT_LEAD_TIME_MS, line 20).
-- **Architecture:** proactive, not failure-driven. Prevents the concurrent-refresh race documented in `ARCHITECTURE.md` §4.8.
-- **Refresh function is injected.** The runtime provides the WHEN; the caller provides the HOW — `RefreshFn = (cred) => Promise<{newPayload, accessTokenExpiresAt}>`. Source: lines 22-29.
-- **Failure handling:** `helpers.markCredentialInvalid(id, message, timestamp)`. State flips to `invalid`; workflows fail loudly with "credential invalid: reauthorize".
-- **What's missing:** nobody has written the per-integration refresh implementations yet. `RefreshFn` is a hole waiting for integrations to declare how to refresh. That hole is exactly what n8n's per-credential-type metadata fills. See §4.5.
+- **`OAuthRefresher`** in `packages\runtime\src\oauth.ts`: 5-min cadence, 10-min lead (DEFAULT_INTERVAL_MS/LEAD_TIME_MS, lines 19-20). Proactive, not failure-driven (avoids the concurrent-refresh race in `ARCHITECTURE.md` §4.8).
+- **`RefreshFn` is injected** (lines 22-29). Runtime knows WHEN to refresh; caller supplies HOW. Failure → `markCredentialInvalid(id, message, ts)`, workflows fail with "credential invalid: reauthorize".
+- **Missing:** no per-integration refresh implementations exist. `RefreshFn` is a hole the per-credential-type OAuth metadata (§4.5) fills.
 
 ### 1.4 Auth types enum (the only per-integration hint we have today)
 
@@ -102,30 +96,12 @@ Source: `packages\cli\src\commands\credentials.ts`.
 
 No `test`, no discovery of required fields, no OAuth authorize flow, no deep-link helper. The user reads integration README, figures out the payload shape, pastes a JSON blob. Power-user-only UX.
 
-### 1.7 What an integration module declares about credentials TODAY
+### 1.7 What an integration declares about credentials TODAY
 
-Concrete audit of both shipped integrations.
+- **`http-generic`** (`integrations\http-generic\src\index.ts` lines 60-95): `authType: "none"`. Nothing else.
+- **`slack-send`** (`integrations\slack-send\src\index.ts` lines 54-86): `authType: "bearer"`, a `docsUrl`. No field schema, no test, no OAuth endpoints, no deep-link.
 
-**`http-generic`** (`integrations\http-generic\src\index.ts` lines 60-95):
-```typescript
-manifest: {
-  name: "http-generic",
-  authType: "none",
-  // no credential fields declared, no testCredential, no OAuth metadata
-}
-```
-
-**`slack-send`** (`integrations\slack-send\src\index.ts` lines 54-86):
-```typescript
-manifest: {
-  name: "slack-send",
-  authType: "bearer",
-  docsUrl: "https://api.slack.com/methods/chat.postMessage",
-  // no field schema, no test, no OAuth endpoints, no deep-link to token page
-}
-```
-
-The bearer-token handler `extractBearerToken(ctx.credentials)` (lines 94-102) accepts three shapes — plain string, `{accessToken}`, `{token}`, `{bearer}` — because nobody knows what the credential SHOULD look like. **This is exactly the ambiguity the typed credential catalog fixes.**
+The bearer-token handler `extractBearerToken` (lines 94-102) accepts four shapes — plain string, `{accessToken}`, `{token}`, `{bearer}` — because nobody knows what the credential SHOULD look like. **This is exactly the ambiguity the typed credential catalog fixes.**
 
 ### 1.8 Summary of today's state
 
@@ -154,29 +130,29 @@ Each n8n credential exports a `properties: INodeProperties[]` array declaring ev
 ### 2.2 Per-credential `test()` stub (credential test API)
 Each credential ships with a `test: ICredentialTestRequest` that does a cheap canonical call (`/auth/test`, `GET /user`, etc.) and validates response. The n8n UI's "Test" button invokes it. Chorus has no equivalent; our users find out at 3 AM via a failing workflow.
 
-### 2.3 OAuth 2.0 flow metadata (authorize + token URLs, scopes, PKCE)
-n8n credentials declare `authUrl`, `accessTokenUrl`, `scope`, `authQueryParameters`, `authenticationMethod` ("header" | "body"). Its OAuth core reads these and runs the authorize dance without per-credential code. Our `RefreshFn` is injected per-runtime, not per-integration — we need metadata on the integration so the generic refresher knows *which* endpoint to hit.
+### 2.3 OAuth 2.0 flow metadata
+n8n declares `authUrl`, `accessTokenUrl`, `scope`, `authQueryParameters`, `authenticationMethod` ("header" | "body"). Its OAuth core runs the authorize dance without per-credential code. Our `RefreshFn` is runtime-injected, not integration-declared — we need metadata on the integration so the generic refresher knows *which* endpoint to hit.
 
-### 2.4 Documentation URL & "where do I get this?" deep-link
-Credentials have `documentationUrl` (n8n docs) plus the field-level `description` can include markdown links. n8n's cloud UI surfaces "Get your token here" buttons. We have one `docsUrl` at the integration level but no field-level "open https://github.com/settings/tokens to create a classic PAT" pointers.
+### 2.4 Documentation URL + field-level deep-links
+n8n has `documentationUrl` plus markdown links in field descriptions. Its UI surfaces "Get your token here" buttons. We have `docsUrl` at integration level only — no field-level "create a classic PAT at github.com/settings/tokens" pointers.
 
-### 2.5 Display name & description (per-field and per-type)
-Every credential type has a `displayName`. Every field has a `displayName` and `description`. Powers UX. We carry `name` (an enum value) as the only label.
+### 2.5 Display name & description (per-field, per-type)
+Every credential type has a `displayName`; every field has `displayName` + `description`. We carry `name` (an enum value) as the only label.
 
-### 2.6 Field validation (regex, min/max length, format hints)
-n8n uses `typeOptions: { password: true, rows: 4, ... }` plus field-level validators. Password fields render masked. URL fields validate. We have Zod on the *workflow* side but none on *credentials*.
+### 2.6 Field validation
+n8n: `typeOptions: { password: true, rows: 4, ... }` + field-level validators. Passwords render masked; URLs validate. Chorus has Zod for workflow nodes; none for credentials.
 
 ### 2.7 Multiple credential types per service
-n8n has `slackApi` (token) AND `slackOAuth2Api` (OAuth) — a Slack integration can accept either. We hard-code one `authType` per integration. Slack is literally the canonical example.
+`slackApi` (token) AND `slackOAuth2Api` (OAuth) — a Slack integration accepts either. We hard-code one `authType` per integration.
 
-### 2.8 Credential sharing + RBAC (Cloud/Enterprise only)
-Not relevant to local-first Chorus v1. Skip.
+### 2.8 Credential sharing / RBAC (Cloud/Enterprise)
+Not relevant to local-first Chorus v1.
 
-### 2.9 Expression evaluation inside credential field defaults
-e.g. default `baseUrl = "https://{{ $credentials.workspace }}.slack.com"`. Powerful but deep-end. Defer.
+### 2.9 Expression evaluation in credential defaults
+e.g. `baseUrl = "https://{{ $credentials.workspace }}.slack.com"`. Powerful footgun; defer.
 
-### 2.10 generic `httpRequest` helper that consumes the credential
-n8n has a `this.helpers.requestWithAuthentication(credType, options)` that applies the right auth header given a credential-type name. The mirror in Chorus would be: given a `CredentialTypeDefinition`, synthesize the `Authorization` header. Nice-to-have; defer.
+### 2.10 `requestWithAuthentication` helper
+Given a credential-type name, n8n synthesizes the Authorization header. Mirror would be: given a `CredentialTypeDefinition`, apply auth. Nice-to-have.
 
 ---
 
@@ -595,20 +571,10 @@ All commands land in `packages\cli\src\commands\credentials.ts`. Keep the existi
 ### 6.1 `chorus credentials add <integration> [--type <typeName>] [--interactive]`
 
 New behavior:
-- Load the integration module → read `manifest.credentialTypes`.
-- If zero types: fallback to legacy `--secret | --payload | --interactive` path (existing code).
-- If one type: use it.
-- If 2+: require `--type <typeName>` unless `--interactive`, in which case prompt to pick from a list.
-- With a selected type, iterate `type.fields`:
-  - Skip `oauthManaged: true` fields (the OAuth flow will fill them in).
-  - Skip fields with `type === "boolean"` and a default that isn't required.
-  - For every other field:
-    - Type `password` → masked prompt (existing `promptSecret`).
-    - Type `url` / `string` / `number` / `select` → echoed prompt.
-    - Validate against `pattern`, `minLength`, `maxLength`, `options`.
-  - Collect into a `Record<string, string | number | boolean>`; JSON-encode; encrypt; store with `credential_type_name = type.name`.
-- If `type.authType === "oauth2"`: after collecting `clientId` / `clientSecret` (the user-supplied half), kick off the OAuth authorize flow — open browser to `oauth.authorizeUrl`, spin up a localhost listener on `oauth.redirectPath`, exchange the code at `oauth.tokenUrl`, merge `accessToken` + `refreshToken` + `tokenExpiresAt` into the payload before encryption.
-- If `type.test` exists or `IntegrationModule.testCredential` exists → run it, print PASS/FAIL with `identity` echoed. On FAIL: prompt "keep anyway? y/N", default N.
+- Load manifest, read `credentialTypes`. Zero → legacy `--secret|--payload|--interactive` path. One → use it. Two+ → require `--type` unless `--interactive`, then prompt to pick.
+- For the selected type, iterate `fields`: skip `oauthManaged`; prompt the rest (`password` → masked, `url`/`string`/`number`/`select` → echoed); validate against `pattern`/`minLength`/`maxLength`/`options`; encrypt; store with `credential_type_name = type.name`.
+- If `authType === "oauth2"`: after collecting `clientId`/`clientSecret`, open browser to `oauth.authorizeUrl`, spin up localhost listener on `oauth.redirectPath`, exchange code at `oauth.tokenUrl`, merge `accessToken`/`refreshToken`/`tokenExpiresAt` into payload before encryption.
+- If a test hook exists → run it, print PASS/FAIL with `identity` echo. On FAIL: prompt "keep anyway? y/N", default N.
 
 ### 6.2 `chorus credentials test <id-or-integration:name>`
 
@@ -700,5 +666,52 @@ For every integration with at least one `credentialType`:
 > `mcp-papa` needs `IntegrationManifest.credentialTypes: CredentialTypeDefinition[]` — that's it. Every tool name, input schema, description, deep-link, and test endpoint is derived mechanically from that array plus `IntegrationModule.testCredential`.
 
 ---
+
+## 8. Open questions deferred to v1.x or v2
+
+Intentionally not decided in Wave 2. Captured so we don't accidentally solve the wrong one.
+
+1. **Credential type inheritance (`extendsType`).** n8n's `oauth2Api` base type abstracts away shared OAuth fields. Premature until we've shipped ≥10 distinct OAuth integrations.
+2. **Per-workflow credential scoping.** n8n Cloud restricts which workflows see which credentials. Needs an auth model; Chorus is single-user for v1.
+3. **Rotation reminders.** Proactive warnings at >80% token-lifetime-elapsed. Easy win on top of `chorus credentials test --all`; not blocking.
+4. **Shared-OAuth-app vs bring-your-own.** Some services (Google) allow a shared app; others (Notion, Linear) require per-installer apps. Our flow should support both; UX choice is separable from the schema choice.
+5. **Multi-account concurrency.** If both `slack-send:work` and `slack-send:personal` exist, which does a node use? Already correct: workflow node references `credentials: "slack-send:work"` at definition time. No change — catalog expands credential *shape*, not *selection*.
+6. **OS-keychain key storage.** Today `CHORUS_ENCRYPTION_KEY` is an env var. v2 could wrap in DPAPI / macOS Keychain / libsecret. Orthogonal — envelope stays AES-256-GCM.
+7. **Repair-agent credential isolation.** When a patch modifies credential consumption, the repair agent must not run against real credentials. Existing subprocess isolation handles this; call out as policy.
+8. **Laptop-theft revocation.** Out of scope. Threat model is phishing of `CHORUS_ENCRYPTION_KEY`; AES-GCM does not defend against that. Mitigation: OS-keychain (see #6).
+
+---
+
+## 9. Reference — bonus-quality additions from n8n worth knowing about
+
+Features beyond the user's paste that `credentials-oscar` and `mcp-papa` should be aware of but not implement yet.
+
+1. **Credential masking in logs.** n8n scrubs `password`-typed fields from execution logs by consulting the field schema. Chorus should do the same — a ~20-line addition to `packages\runtime\src\events.ts`. Follow-up.
+2. **`displayOptions.show` / `displayOptions.hide`.** Fields conditionally rendered based on other field values (e.g., show `clientSecret` only if `clientAuthStyle === 'body'`). Out of scope for v1.
+3. **Default redirect URI computation.** n8n derives `{baseUrl}/rest/oauth2-credential/callback`; Chorus should compute `http://localhost:{api-port}{oauth.redirectPath}` from the runtime's bound API port. Already handled by the default path in §4.2.
+4. **Token refresh drift compensation.** n8n refreshes at 80% of `expires_in`; we refresh at `expires_at - 10m`. Both are fine — swap to percentage if we integrate a sub-hour-TTL service.
+5. **`authenticate` method** on credential class (applies Auth header given credentials + request). Equivalent to the `requestWithAuthentication` helper we deferred in 2.10.
+6. **`testedBy: 'someCustomAction'`.** n8n's alternative to the canonical `test: {request}` shape — invokes an arbitrary action. Our §4.4 `testCredential` already covers this.
+7. **Generic-HTTP credential consumption.** `http-generic` could accept a Chorus credential with a `headerAuth`/`queryAuth`/`basicAuth` subtype. Nice-to-have; defer.
+
+---
+
+## Summary
+
+Today Chorus has sound credential encryption (AES-256-GCM) and a correct proactive OAuth refresh scheduler, but no per-integration structure — integrations declare a single `authType` enum, so the CLI can't prompt, nothing tests, and every handler writes its own `extractBearerToken` fallback. n8n's real IP is its typed credential catalog: per-integration schemas for fields, tests, OAuth endpoints, and documentation. We adopt that catalog by adding `credentialTypes: CredentialTypeDefinition[]` to every `IntegrationManifest`. The five Zod schemas in §4 give `credentials-oscar` everything to implement the upgrade additively (no breaking changes to storage or refresh), and the derived tool shape in §7 lets `mcp-papa` expose integrations as MCP tools with zero bespoke templating.
+
+**Field names `credentials-oscar` adds — the canonical spec commitment:**
+
+| Target | Field | Notes |
+|---|---|---|
+| `IntegrationManifest` | `credentialTypes: CredentialTypeDefinition[]` | New. Array. Most integrations declare one. |
+| `IntegrationManifest` | `authType` (unchanged) | Kept, marked `@deprecated`. |
+| `IntegrationModule` | `testCredential?: (typeName, ctx) => Promise<CredentialTestResult>` | New, optional. |
+| `CredentialSchema` | `credentialTypeName: string` | New. Links row to catalog entry. |
+| `CredentialSchema` | rename `type → authType` | TS only. DB column stays `type`. |
+| SQLite `credentials` | new col `credential_type_name TEXT NOT NULL DEFAULT ''` | Per §5.1. |
+
+Wave 2 can start.
+
 
 
