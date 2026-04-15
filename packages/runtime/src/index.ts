@@ -107,6 +107,17 @@ export {
   type RefreshedToken,
 } from "./oauth.js";
 
+export {
+  DEFAULT_INTERVAL_MS as EXPIRY_ALARM_DEFAULT_INTERVAL_MS,
+  DEFAULT_ROTATION_DAYS,
+  DEFAULT_WARN_WINDOW_MS,
+  ExpiryAlarm,
+  computeDeadline,
+  startExpiryAlarm,
+  type ExpiryAlarmOptions,
+  type ExpiryAlarmResult,
+} from "./expiry-alarm.js";
+
 export { createServer, type ChorusServer, type CreateServerOptions } from "./server.js";
 
 export {

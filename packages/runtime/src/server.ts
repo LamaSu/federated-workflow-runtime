@@ -1,6 +1,6 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import type { IntegrationLoader } from "./executor.js";
-import type { RefreshFn } from "./oauth.js";
+import type { ManifestLookup, RefreshFn } from "./oauth.js";
 import { openDatabase, QueryHelpers, type DatabaseType } from "./db.js";
 import { loadKeyFromEnv } from "./credentials.js";
 import { RunQueue } from "./queue.js";
@@ -9,7 +9,9 @@ import { CronScheduler } from "./triggers/cron.js";
 import { WebhookRegistry } from "./triggers/webhook.js";
 import { ManualTrigger } from "./triggers/manual.js";
 import { OAuthRefresher } from "./oauth.js";
+import { ExpiryAlarm } from "./expiry-alarm.js";
 import { registerApiRoutes } from "./api/index.js";
+import type { EventDispatcher } from "./triggers/event.js";
 
 /**
  * Fastify server composition per ARCHITECTURE §4.
@@ -33,8 +35,24 @@ export interface CreateServerOptions {
   dbPath: string;
   /** Integration loader — how we resolve action code for each node. */
   integrationLoader: IntegrationLoader;
-  /** OAuth refresh implementation (see oauth.ts). Optional — omit to disable. */
+  /**
+   * OAuth refresh implementation (see oauth.ts). Optional — when omitted,
+   * the refresher uses `defaultOAuth2Refresh` against each credential
+   * type's oauth metadata (requires `manifestLookup`).
+   */
   refreshOAuth?: RefreshFn;
+  /**
+   * Manifest lookup used by the OAuth refresher's default path and the
+   * credential-catalog-aware credential accessor. When omitted, only
+   * legacy credentials without a catalog entry will work.
+   */
+  manifestLookup?: ManifestLookup;
+  /**
+   * Event dispatcher used by the expiry-alarm cron to emit
+   * `credential.expiring` events for non-OAuth credentials approaching
+   * their rotation horizon. Optional — omit to disable the alarm.
+   */
+  eventDispatcher?: EventDispatcher;
   /** Encryption key. Defaults to loading from env per credentials.ts. */
   encryptionKey?: Buffer;
   /** Bind port for Fastify. Not auto-listened; the caller decides. */
@@ -58,6 +76,7 @@ export interface ChorusServer {
   webhookRegistry: WebhookRegistry;
   manualTrigger: ManualTrigger;
   oauthRefresher?: OAuthRefresher;
+  expiryAlarm?: ExpiryAlarm;
   /** Run one pass of the executor loop. Primarily for tests. */
   tick(): Promise<void>;
   /** Start the continuous executor loop. Returns a stop() function. */
@@ -156,14 +175,30 @@ export function createServer(opts: CreateServerOptions): ChorusServer {
   });
 
   // OAuth refresher ----------------------------------------------------------
+  // Start the refresher when either a custom refresh function is supplied
+  // (legacy path) OR a manifestLookup is wired (catalog-driven path). A
+  // caller providing neither explicitly disables OAuth refresh.
   let oauthRefresher: OAuthRefresher | undefined;
-  if (opts.refreshOAuth) {
+  if (opts.refreshOAuth || opts.manifestLookup) {
     oauthRefresher = new OAuthRefresher({
       db,
       key,
       refresh: opts.refreshOAuth,
+      manifestLookup: opts.manifestLookup,
     });
     oauthRefresher.start();
+  }
+
+  // Expiry alarm (non-OAuth credentials) -------------------------------------
+  // Only starts when an event dispatcher is wired — otherwise there's
+  // nowhere to send `credential.expiring` events.
+  let expiryAlarm: ExpiryAlarm | undefined;
+  if (opts.eventDispatcher) {
+    expiryAlarm = new ExpiryAlarm({
+      db,
+      dispatcher: opts.eventDispatcher,
+    });
+    expiryAlarm.start();
   }
 
   // Executor loop ------------------------------------------------------------
@@ -215,6 +250,7 @@ export function createServer(opts: CreateServerOptions): ChorusServer {
   }
 
   const close = async (): Promise<void> => {
+    expiryAlarm?.stop();
     oauthRefresher?.stop();
     cronScheduler.shutdown();
     await app.close();
@@ -230,6 +266,7 @@ export function createServer(opts: CreateServerOptions): ChorusServer {
     webhookRegistry,
     manualTrigger,
     oauthRefresher,
+    expiryAlarm,
     tick,
     startLoop,
     close,
