@@ -18,6 +18,7 @@ import { runInit } from "./commands/init.js";
 import { runRun } from "./commands/run.js";
 import { runReport } from "./commands/report.js";
 import { runValidate } from "./commands/validate.js";
+import { runUi } from "./commands/ui.js";
 import {
   runPatchCommand,
   type PatchAction,
@@ -86,6 +87,31 @@ export function buildProgram(): Command {
     .option("--limit <n>", "max rows per table", (v) => Number.parseInt(v, 10), 20)
     .action(async (opts: { json?: boolean; limit?: number }) => {
       const code = await runReport({ json: opts.json, limit: opts.limit });
+      process.exit(code);
+    });
+
+  // ── ui ────────────────────────────────────────────────────────────────────
+  program
+    .command("ui")
+    .description(
+      "generate a dashboard with your agent (prints API URL + prompt template)",
+    )
+    .option("--prompt", "print only the prompt template (pipe-friendly)")
+    .option("--example", "write examples/ui/minimal.html into the cwd")
+    .option("--serve", "serve the minimal reference HTML on port 3711")
+    .option(
+      "--port <port>",
+      "override --serve port",
+      (v) => Number.parseInt(v, 10),
+      3711,
+    )
+    .action(async (opts: { prompt?: boolean; example?: boolean; serve?: boolean; port?: number }) => {
+      const code = await runUi({
+        prompt: opts.prompt,
+        example: opts.example,
+        serve: opts.serve,
+        servePort: opts.port,
+      });
       process.exit(code);
     });
 

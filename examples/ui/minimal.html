@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Chorus — minimal dashboard</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root {
+      --bg: #f5f0e1; --fg: #2a2a2a; --muted: #7a7565;
+      --ok: #5c6b3d; --warn: #b57d1d; --err: #8b2f2f;
+      --panel: #ede6d1;
+    }
+    body { margin:0; padding:24px; background:var(--bg); color:var(--fg);
+      font: 14px/1.45 ui-monospace, Menlo, Consolas, monospace; }
+    h1 { margin:0 0 4px; font-size:18px; letter-spacing:.02em; }
+    .sub { color:var(--muted); margin-bottom:20px; }
+    .panel { background:var(--panel); padding:14px 16px; margin-bottom:16px; }
+    .panel h2 { margin:0 0 8px; font-size:13px; text-transform:uppercase;
+      letter-spacing:.08em; color:var(--muted); }
+    table { width:100%; border-collapse:collapse; }
+    th, td { text-align:left; padding:6px 10px 6px 0; vertical-align:top;
+      white-space:nowrap; }
+    th { color:var(--muted); font-weight:500; font-size:12px;
+      border-bottom:1px solid #d8cfb7; }
+    tr + tr td { border-top:1px solid #e2dac1; }
+    .id { color:var(--muted); }
+    .success { color:var(--ok); }
+    .failed  { color:var(--err); }
+    .running { color:var(--warn); }
+    .empty { color:var(--muted); font-style:italic; }
+    .updated { color:var(--muted); font-size:12px; margin-left:8px; }
+  </style>
+</head>
+<body>
+  <h1>Chorus — minimal dashboard</h1>
+  <div class="sub">
+    Use <code>chorus ui --prompt</code> to generate a better one with your agent.
+    <span class="updated" id="updated"></span>
+  </div>
+
+  <div class="panel">
+    <h2>Recent runs</h2>
+    <table id="runs"><thead><tr>
+      <th>status</th><th>workflow</th><th>started</th><th>duration</th><th>id</th>
+    </tr></thead><tbody><tr><td colspan="5" class="empty">Loading...</td></tr></tbody></table>
+  </div>
+
+  <div class="panel">
+    <h2>Error signatures</h2>
+    <table id="errors"><thead><tr>
+      <th>hash</th><th>integration.op</th><th>class</th><th>occ</th><th>last seen</th>
+    </tr></thead><tbody><tr><td colspan="5" class="empty">Loading...</td></tr></tbody></table>
+  </div>
+
+  <div class="panel">
+    <h2>Patches</h2>
+    <table id="patches"><thead><tr>
+      <th>id</th><th>integration</th><th>version</th><th>state</th><th>applied</th>
+    </tr></thead><tbody><tr><td colspan="5" class="empty">Loading...</td></tr></tbody></table>
+  </div>
+
+  <script>
+    const API = location.origin && location.origin.startsWith("http") && location.port !== "3710"
+      ? "http://127.0.0.1:3710" : "";
+    const fmt = (iso) => {
+      if (!iso) return "—";
+      const d = new Date(iso), s = (Date.now()-d.getTime())/1000|0;
+      if (s<60) return s+"s ago";
+      if (s<3600) return (s/60|0)+"m ago";
+      if (s<86400) return (s/3600|0)+"h ago";
+      return d.toISOString().slice(0,10);
+    };
+    const tbody = (id) => document.querySelector("#"+id+" tbody");
+    const row = (cells) => "<tr>"+cells.map(c=>"<td>"+c+"</td>").join("")+"</tr>";
+    const esc = (s) => String(s||"").replace(/[<>&]/g, (c)=>({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]));
+    const truncId = (s) => s ? '<span class="id" title="'+esc(s)+'">'+esc(s.slice(0,12))+'…</span>' : "—";
+
+    async function refresh() {
+      try {
+        const [runs, errors, patches] = await Promise.all([
+          fetch(API+"/api/runs?limit=20").then(r=>r.json()),
+          fetch(API+"/api/errors?limit=20").then(r=>r.json()),
+          fetch(API+"/api/patches?limit=20").then(r=>r.json()),
+        ]);
+        tbody("runs").innerHTML = (runs.runs||[]).length === 0
+          ? '<tr><td colspan="5" class="empty">No runs yet.</td></tr>'
+          : runs.runs.map(r=>row([
+              '<span class="'+esc(r.status)+'">'+esc(r.status)+'</span>',
+              esc(r.workflowId),
+              '<span title="'+esc(r.startedAt)+'">'+fmt(r.startedAt)+'</span>',
+              r.durationMs != null ? r.durationMs+"ms" : "—",
+              truncId(r.id),
+            ])).join("");
+        tbody("errors").innerHTML = (errors.errors||[]).length === 0
+          ? '<tr><td colspan="5" class="empty">No errors. Nice.</td></tr>'
+          : errors.errors.map(e=>row([
+              truncId(e.hash),
+              esc(e.integration)+"."+esc(e.operation),
+              esc(e.errorClass)+(e.httpStatus?" ("+e.httpStatus+")":""),
+              "×"+e.occurrences,
+              '<span title="'+esc(e.lastSeen)+'">'+fmt(e.lastSeen)+'</span>',
+            ])).join("");
+        tbody("patches").innerHTML = (patches.patches||[]).length === 0
+          ? '<tr><td colspan="5" class="empty">No patches installed.</td></tr>'
+          : patches.patches.map(p=>row([
+              truncId(p.id),
+              esc(p.integration),
+              esc(p.version),
+              esc(p.state),
+              p.appliedAt ? '<span title="'+esc(p.appliedAt)+'">'+fmt(p.appliedAt)+'</span>' : "—",
+            ])).join("");
+        document.getElementById("updated").textContent = "Last refresh: just now";
+      } catch (err) {
+        document.getElementById("updated").textContent = "Lost connection to Chorus runtime";
+      }
+    }
+    refresh();
+    setInterval(refresh, 15000);
+  </script>
+</body>
+</html>
