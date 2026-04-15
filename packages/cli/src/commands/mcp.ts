@@ -287,8 +287,13 @@ async function findIntegrationsRoot(cwd: string): Promise<string | null> {
  *   1. `@chorus-integrations/<name>` — the canonical shape
  *   2. `chorus-integration-<name>` — community convention
  *
- * Uses dynamic import so a missing package produces a clean error rather
- * than a top-of-file MODULE_NOT_FOUND.
+ * Resolution strategy: walk up from `cwd` to find a `node_modules/<spec>/`
+ * with a readable package.json. This works for workspace installs
+ * (where the integration is a sibling workspace not declared in the root
+ * package.json's deps), for deep installs, AND for the canonical
+ * "user's project npm i @chorus-integrations/*" case. `createRequire`
+ * would fail the first case because npm workspaces don't hoist sibling
+ * packages into the parent's dependency graph.
  */
 async function loadIntegration(
   cwd: string,
@@ -298,16 +303,12 @@ async function loadIntegration(
     `@chorus-integrations/${name}`,
     `chorus-integration-${name}`,
   ];
-  // node's resolve starts from the CLI's own location — which is wrong for
-  // workspace installs. Use createRequire(cwd/package.json) so we resolve
-  // from the project root, same rule integrations themselves use.
-  const { createRequire } = await import("node:module");
-  const req = createRequire(path.join(cwd, "package.json"));
   let lastErr: unknown;
   for (const spec of candidates) {
     try {
-      const resolved = req.resolve(spec);
-      const mod = (await import(resolved)) as {
+      const entry = await findIntegrationEntryPoint(cwd, spec);
+      if (!entry) continue;
+      const mod = (await import(pathToFileUrl(entry))) as {
         default?: IntegrationModule;
       } & IntegrationModule;
       const integration = (mod.default ?? mod) as IntegrationModule;
@@ -327,6 +328,71 @@ async function loadIntegration(
       ", ",
     )}. Last error: ${message}`,
   );
+}
+
+/**
+ * Walk up from `cwd` looking for `<current>/node_modules/<spec>/package.json`.
+ * Returns the absolute path to the package's entry file (respecting `main`
+ * or `exports['.']`) if found, else null.
+ */
+async function findIntegrationEntryPoint(
+  cwd: string,
+  spec: string,
+): Promise<string | null> {
+  let current = path.resolve(cwd);
+  for (let i = 0; i < 8; i++) {
+    const pkgJson = path.join(current, "node_modules", spec, "package.json");
+    try {
+      const raw = await readFile(pkgJson, "utf8");
+      const pkg = JSON.parse(raw) as {
+        main?: string;
+        module?: string;
+        exports?: unknown;
+      };
+      const entry = resolvePackageEntry(pkg);
+      if (!entry) return null;
+      return path.resolve(path.dirname(pkgJson), entry);
+    } catch {
+      // keep walking
+    }
+    const parent = path.dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+  return null;
+}
+
+/**
+ * Resolve a package entry file from its package.json. Handles three common
+ * shapes: `main`, `exports['.']` (string), `exports['.'].import` (conditional).
+ * Falls back to `module` then `./index.js`.
+ */
+function resolvePackageEntry(pkg: {
+  main?: string;
+  module?: string;
+  exports?: unknown;
+}): string | null {
+  if (pkg.exports && typeof pkg.exports === "object") {
+    const exp = pkg.exports as Record<string, unknown>;
+    const dot = exp["."];
+    if (typeof dot === "string") return dot;
+    if (dot && typeof dot === "object") {
+      const conditional = dot as { import?: string; default?: string };
+      if (typeof conditional.import === "string") return conditional.import;
+      if (typeof conditional.default === "string") return conditional.default;
+    }
+  }
+  if (typeof pkg.main === "string") return pkg.main;
+  if (typeof pkg.module === "string") return pkg.module;
+  return "./index.js";
+}
+
+/** Convert an absolute filesystem path to a file:// URL for `import()`. */
+function pathToFileUrl(absPath: string): string {
+  // On Windows, a path like C:\foo\bar needs to become file:///C:/foo/bar.
+  const normalized = absPath.replace(/\\/g, "/");
+  if (/^[A-Za-z]:/.test(normalized)) return `file:///${normalized}`;
+  return `file://${normalized}`;
 }
 
 // ── Color utilities ─────────────────────────────────────────────────────────
