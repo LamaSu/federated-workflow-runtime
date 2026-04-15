@@ -112,10 +112,17 @@ export function runMigrations(db: DatabaseType): void {
     CREATE INDEX IF NOT EXISTS idx_steps_status ON steps(run_id, status);
 
     -- Credentials (AES-256-GCM encrypted) --------------------------------------
+    -- `type` is the auth envelope (apiKey|oauth2|basic|bearer|none); it
+    -- stays named `type` in the DB for back-compat even though the TS
+    -- schema renames it to `authType`.
+    -- `credential_type_name` (docs/CREDENTIALS_ANALYSIS.md §4.6) links the
+    -- row to a CredentialTypeDefinition in the integration manifest.
+    -- Pre-catalog rows are backfilled to `<integration>:legacy` below.
     CREATE TABLE IF NOT EXISTS credentials (
       id                    TEXT PRIMARY KEY,
       integration           TEXT NOT NULL,
       type                  TEXT NOT NULL,
+      credential_type_name  TEXT NOT NULL DEFAULT '',
       name                  TEXT NOT NULL,
       encrypted_payload     BLOB NOT NULL,
       oauth_access_expires  TEXT,
@@ -131,6 +138,8 @@ export function runMigrations(db: DatabaseType): void {
     CREATE INDEX IF NOT EXISTS idx_oauth_expiring
       ON credentials(oauth_access_expires)
       WHERE type='oauth2';
+    CREATE INDEX IF NOT EXISTS idx_credentials_type_name
+      ON credentials(integration, credential_type_name);
 
     -- Error signatures (local cache before reporting) -------------------------
     CREATE TABLE IF NOT EXISTS error_signatures (
@@ -177,13 +186,72 @@ export function runMigrations(db: DatabaseType): void {
 
     -- Events (internal bus — v1.1 for waitForEvent) ----------------------------
     CREATE TABLE IF NOT EXISTS events (
-      id         TEXT PRIMARY KEY,
-      name       TEXT NOT NULL,
-      payload    TEXT NOT NULL,
-      created_at TEXT NOT NULL
+      id                TEXT PRIMARY KEY,
+      type              TEXT NOT NULL,
+      payload           TEXT NOT NULL,         -- JSON
+      source            TEXT,
+      emitted_at        TEXT NOT NULL,
+      correlation_id    TEXT,
+      consumed_by_run   TEXT                   -- run id once dispatched (NULL = unconsumed)
     );
-    CREATE INDEX IF NOT EXISTS idx_events_name ON events(name, created_at);
+    CREATE INDEX IF NOT EXISTS idx_events_type_unconsumed ON events(type, consumed_by_run);
+    CREATE INDEX IF NOT EXISTS idx_events_correlation ON events(correlation_id);
+
+    -- Waiting steps (durable parking spots for step.waitForEvent) -------------
+    CREATE TABLE IF NOT EXISTS waiting_steps (
+      id                      TEXT PRIMARY KEY,
+      run_id                  TEXT NOT NULL,
+      step_name               TEXT NOT NULL,
+      event_type              TEXT NOT NULL,
+      match_payload           TEXT,             -- JSON or NULL
+      match_correlation_id    TEXT,
+      expires_at              TEXT NOT NULL,
+      resolved_at             TEXT,             -- NULL = still waiting
+      resolved_event_id       TEXT,
+      FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_waiting_event_type ON waiting_steps(event_type, resolved_at);
+    CREATE INDEX IF NOT EXISTS idx_waiting_expires ON waiting_steps(expires_at, resolved_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_waiting_run_step ON waiting_steps(run_id, step_name);
   `);
+
+  // Handle migrations from a pre-existing `events` table (old MVP shape:
+  // id/name/payload/created_at). We need to preserve the table if it has
+  // rows, but the new columns need to exist. Since the MVP table was a
+  // placeholder (never written to) we can safely drop+recreate if the
+  // expected columns are missing.
+  const eventsCols = db
+    .prepare<[], { name: string }>(`PRAGMA table_info(events)`)
+    .all()
+    .map((r) => (r as unknown as { name: string }).name);
+  const hasType = eventsCols.includes("type");
+  const hasEmittedAt = eventsCols.includes("emitted_at");
+  if (eventsCols.length > 0 && (!hasType || !hasEmittedAt)) {
+    // Count rows; if empty we drop-and-recreate, else we abort loudly so a
+    // developer notices. Real deployments should run a proper migration.
+    const count = db.prepare(`SELECT COUNT(*) AS c FROM events`).get() as { c: number };
+    if (count.c === 0) {
+      db.exec(`
+        DROP INDEX IF EXISTS idx_events_name;
+        DROP TABLE IF EXISTS events;
+        CREATE TABLE events (
+          id                TEXT PRIMARY KEY,
+          type              TEXT NOT NULL,
+          payload           TEXT NOT NULL,
+          source            TEXT,
+          emitted_at        TEXT NOT NULL,
+          correlation_id    TEXT,
+          consumed_by_run   TEXT
+        );
+        CREATE INDEX idx_events_type_unconsumed ON events(type, consumed_by_run);
+        CREATE INDEX idx_events_correlation ON events(correlation_id);
+      `);
+    } else {
+      throw new Error(
+        "events table exists with legacy schema and non-zero rows — manual migration required",
+      );
+    }
+  }
 
   db.prepare(
     "INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('schema_version', ?)",
@@ -260,6 +328,30 @@ export interface CredentialRow {
   last_error: string | null;
   created_at: string;
   updated_at: string;
+}
+
+// ── Events bus (v1.1 — waitForEvent) ────────────────────────────────────────
+
+export interface EventRow {
+  id: string;
+  type: string;
+  payload: string;           // JSON
+  source: string | null;
+  emitted_at: string;
+  correlation_id: string | null;
+  consumed_by_run: string | null;
+}
+
+export interface WaitingStepRow {
+  id: string;
+  run_id: string;
+  step_name: string;
+  event_type: string;
+  match_payload: string | null;       // JSON or NULL
+  match_correlation_id: string | null;
+  expires_at: string;
+  resolved_at: string | null;
+  resolved_event_id: string | null;
 }
 
 // ── Typed query helpers ─────────────────────────────────────────────────────
@@ -482,6 +574,137 @@ export class QueryHelpers {
               last_error = NULL, updated_at = ?
         WHERE id = ?`,
     ).run(encryptedPayload, oauthAccessExpires, nowIso, id);
+  }
+
+  // Events ------------------------------------------------------------------
+
+  insertEvent(row: EventRow): void {
+    this.get(
+      `INSERT INTO events (id, type, payload, source, emitted_at, correlation_id, consumed_by_run)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      row.id,
+      row.type,
+      row.payload,
+      row.source,
+      row.emitted_at,
+      row.correlation_id,
+      row.consumed_by_run,
+    );
+  }
+
+  getEvent(id: string): EventRow | undefined {
+    return this.get(`SELECT * FROM events WHERE id = ?`).get(id) as EventRow | undefined;
+  }
+
+  /**
+   * Events of a given type that haven't been consumed yet, oldest first.
+   * Used by the dispatch loop to match unconsumed events against waiting
+   * steps. We don't mark `consumed_by_run` here — individual events can
+   * wake multiple waiting steps (fan-out), so the consumer decides.
+   */
+  listUnconsumedEventsByType(type: string, limit = 100): EventRow[] {
+    return this.get(
+      `SELECT * FROM events WHERE type = ? AND consumed_by_run IS NULL
+         ORDER BY emitted_at ASC LIMIT ?`,
+    ).all(type, limit) as EventRow[];
+  }
+
+  markEventConsumed(id: string, runId: string): void {
+    this.get(
+      `UPDATE events SET consumed_by_run = ? WHERE id = ? AND consumed_by_run IS NULL`,
+    ).run(runId, id);
+  }
+
+  listRecentEvents(type?: string, limit = 50): EventRow[] {
+    if (type) {
+      return this.get(
+        `SELECT * FROM events WHERE type = ? ORDER BY emitted_at DESC LIMIT ?`,
+      ).all(type, limit) as EventRow[];
+    }
+    return this.get(
+      `SELECT * FROM events ORDER BY emitted_at DESC LIMIT ?`,
+    ).all(limit) as EventRow[];
+  }
+
+  // Waiting steps ------------------------------------------------------------
+
+  insertWaitingStep(row: WaitingStepRow): void {
+    this.get(
+      `INSERT INTO waiting_steps
+         (id, run_id, step_name, event_type, match_payload, match_correlation_id,
+          expires_at, resolved_at, resolved_event_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(run_id, step_name) DO UPDATE SET
+         event_type           = excluded.event_type,
+         match_payload        = excluded.match_payload,
+         match_correlation_id = excluded.match_correlation_id,
+         expires_at           = excluded.expires_at,
+         resolved_at          = excluded.resolved_at,
+         resolved_event_id    = excluded.resolved_event_id`,
+    ).run(
+      row.id,
+      row.run_id,
+      row.step_name,
+      row.event_type,
+      row.match_payload,
+      row.match_correlation_id,
+      row.expires_at,
+      row.resolved_at,
+      row.resolved_event_id,
+    );
+  }
+
+  getWaitingStep(runId: string, stepName: string): WaitingStepRow | undefined {
+    return this.get(
+      `SELECT * FROM waiting_steps WHERE run_id = ? AND step_name = ?`,
+    ).get(runId, stepName) as WaitingStepRow | undefined;
+  }
+
+  /**
+   * Unresolved steps for a given event type. Used by dispatch to find
+   * candidates for an incoming event.
+   */
+  listUnresolvedWaitingSteps(eventType: string): WaitingStepRow[] {
+    return this.get(
+      `SELECT * FROM waiting_steps WHERE event_type = ? AND resolved_at IS NULL`,
+    ).all(eventType) as WaitingStepRow[];
+  }
+
+  /**
+   * Steps whose expires_at has passed (and are still unresolved). The
+   * dispatch loop surfaces these to the executor as timeouts.
+   */
+  listExpiredWaitingSteps(nowIso: string, limit = 100): WaitingStepRow[] {
+    return this.get(
+      `SELECT * FROM waiting_steps
+         WHERE resolved_at IS NULL
+           AND expires_at <= ?
+         ORDER BY expires_at ASC
+         LIMIT ?`,
+    ).all(nowIso, limit) as WaitingStepRow[];
+  }
+
+  resolveWaitingStep(
+    runId: string,
+    stepName: string,
+    eventId: string,
+    nowIso: string,
+  ): void {
+    this.get(
+      `UPDATE waiting_steps
+          SET resolved_at = ?, resolved_event_id = ?
+        WHERE run_id = ? AND step_name = ? AND resolved_at IS NULL`,
+    ).run(nowIso, eventId, runId, stepName);
+  }
+
+  listWaitingSteps(limit = 100): WaitingStepRow[] {
+    return this.get(
+      `SELECT * FROM waiting_steps
+         WHERE resolved_at IS NULL
+         ORDER BY expires_at ASC
+         LIMIT ?`,
+    ).all(limit) as WaitingStepRow[];
   }
 }
 

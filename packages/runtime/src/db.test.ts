@@ -6,8 +6,10 @@ import {
   openDatabase,
   runMigrations,
   type CredentialRow,
+  type EventRow,
   type RunRow,
   type StepRow,
+  type WaitingStepRow,
   type WorkflowRow,
 } from "./db.js";
 
@@ -35,6 +37,7 @@ describe("openDatabase / runMigrations", () => {
       "schema_meta",
       "steps",
       "triggers",
+      "waiting_steps",
       "workflows",
     ]) {
       expect(tables).toContain(expected);
@@ -241,6 +244,238 @@ describe("QueryHelpers", () => {
     const after = h.getCredential("c-1");
     expect(after?.state).toBe("invalid");
     expect(after?.last_error).toBe("refresh failed");
+    db.close();
+  });
+});
+
+describe("QueryHelpers — events bus", () => {
+  it("inserts + fetches an event", () => {
+    const db = newMemDb();
+    const h = createHelpers(db);
+    const ev: EventRow = {
+      id: "11111111-1111-4111-8111-111111111111",
+      type: "order.paid",
+      payload: JSON.stringify({ amount: 100 }),
+      source: "test",
+      emitted_at: "2026-04-15T00:00:00.000Z",
+      correlation_id: "corr-1",
+      consumed_by_run: null,
+    };
+    h.insertEvent(ev);
+    const fetched = h.getEvent(ev.id);
+    expect(fetched?.type).toBe("order.paid");
+    expect(fetched?.consumed_by_run).toBeNull();
+    db.close();
+  });
+
+  it("lists unconsumed events by type, ignoring consumed ones", () => {
+    const db = newMemDb();
+    const h = createHelpers(db);
+    const mkEv = (id: string, type: string, consumed: string | null): EventRow => ({
+      id,
+      type,
+      payload: "{}",
+      source: null,
+      emitted_at: `2026-04-15T00:00:0${id.slice(-1)}.000Z`,
+      correlation_id: null,
+      consumed_by_run: consumed,
+    });
+    h.insertEvent(mkEv("11111111-1111-4111-8111-111111111111", "x", null));
+    h.insertEvent(mkEv("22222222-2222-4222-8222-222222222222", "x", "run-consumed"));
+    h.insertEvent(mkEv("33333333-3333-4333-8333-333333333333", "y", null));
+
+    const xs = h.listUnconsumedEventsByType("x");
+    expect(xs.map((r) => r.id)).toEqual(["11111111-1111-4111-8111-111111111111"]);
+    db.close();
+  });
+
+  it("marks an event consumed only once (idempotent)", () => {
+    const db = newMemDb();
+    const h = createHelpers(db);
+    h.insertEvent({
+      id: "11111111-1111-4111-8111-111111111111",
+      type: "x",
+      payload: "{}",
+      source: null,
+      emitted_at: "2026-04-15T00:00:00.000Z",
+      correlation_id: null,
+      consumed_by_run: null,
+    });
+    h.markEventConsumed("11111111-1111-4111-8111-111111111111", "run-a");
+    const first = h.getEvent("11111111-1111-4111-8111-111111111111");
+    expect(first?.consumed_by_run).toBe("run-a");
+    // Second call should NOT overwrite the first run-id.
+    h.markEventConsumed("11111111-1111-4111-8111-111111111111", "run-b");
+    const second = h.getEvent("11111111-1111-4111-8111-111111111111");
+    expect(second?.consumed_by_run).toBe("run-a");
+    db.close();
+  });
+
+  it("lists recent events, newest first", () => {
+    const db = newMemDb();
+    const h = createHelpers(db);
+    h.insertEvent({
+      id: "aaaaaaaa-1111-4111-8111-111111111111",
+      type: "a",
+      payload: "{}",
+      source: null,
+      emitted_at: "2026-04-15T00:00:01.000Z",
+      correlation_id: null,
+      consumed_by_run: null,
+    });
+    h.insertEvent({
+      id: "bbbbbbbb-2222-4222-8222-222222222222",
+      type: "b",
+      payload: "{}",
+      source: null,
+      emitted_at: "2026-04-15T00:00:02.000Z",
+      correlation_id: null,
+      consumed_by_run: null,
+    });
+    const recent = h.listRecentEvents();
+    expect(recent.map((r) => r.id)).toEqual([
+      "bbbbbbbb-2222-4222-8222-222222222222",
+      "aaaaaaaa-1111-4111-8111-111111111111",
+    ]);
+    const onlyA = h.listRecentEvents("a");
+    expect(onlyA.map((r) => r.id)).toEqual(["aaaaaaaa-1111-4111-8111-111111111111"]);
+    db.close();
+  });
+});
+
+describe("QueryHelpers — waiting_steps", () => {
+  function seedRun(db: ReturnType<typeof openDatabase>, runId: string): void {
+    const h = createHelpers(db);
+    h.insertRun({
+      id: runId,
+      workflow_id: "wf-e",
+      workflow_version: 1,
+      status: "running",
+      triggered_by: "manual",
+      trigger_payload: null,
+      priority: 0,
+      next_wakeup: null,
+      visibility_until: null,
+      started_at: "2026-04-15T00:00:00.000Z",
+      finished_at: null,
+      error: null,
+      attempt: 1,
+    });
+  }
+
+  it("inserts + fetches a waiting step", () => {
+    const db = newMemDb();
+    seedRun(db, "run-w");
+    const h = createHelpers(db);
+    const w: WaitingStepRow = {
+      id: "ws-1",
+      run_id: "run-w",
+      step_name: "wait-for-stripe",
+      event_type: "stripe.3ds.completed",
+      match_payload: null,
+      match_correlation_id: "sess-1",
+      expires_at: "2026-04-15T00:01:00.000Z",
+      resolved_at: null,
+      resolved_event_id: null,
+    };
+    h.insertWaitingStep(w);
+    const got = h.getWaitingStep("run-w", "wait-for-stripe");
+    expect(got?.event_type).toBe("stripe.3ds.completed");
+    expect(got?.resolved_at).toBeNull();
+    db.close();
+  });
+
+  it("lists unresolved steps by event type", () => {
+    const db = newMemDb();
+    seedRun(db, "run-a");
+    seedRun(db, "run-b");
+    const h = createHelpers(db);
+    h.insertWaitingStep({
+      id: "w1",
+      run_id: "run-a",
+      step_name: "s1",
+      event_type: "x",
+      match_payload: null,
+      match_correlation_id: null,
+      expires_at: "2026-04-15T00:01:00.000Z",
+      resolved_at: null,
+      resolved_event_id: null,
+    });
+    h.insertWaitingStep({
+      id: "w2",
+      run_id: "run-b",
+      step_name: "s2",
+      event_type: "x",
+      match_payload: null,
+      match_correlation_id: null,
+      expires_at: "2026-04-15T00:01:00.000Z",
+      resolved_at: "2026-04-15T00:00:30.000Z",
+      resolved_event_id: "ev-1",
+    });
+    const pending = h.listUnresolvedWaitingSteps("x");
+    expect(pending.map((r) => r.run_id)).toEqual(["run-a"]);
+    db.close();
+  });
+
+  it("surfaces expired waiting steps once a time has passed", () => {
+    const db = newMemDb();
+    seedRun(db, "run-t");
+    const h = createHelpers(db);
+    h.insertWaitingStep({
+      id: "ws-t",
+      run_id: "run-t",
+      step_name: "s-exp",
+      event_type: "x",
+      match_payload: null,
+      match_correlation_id: null,
+      expires_at: "2026-04-15T00:00:30.000Z",
+      resolved_at: null,
+      resolved_event_id: null,
+    });
+    const before = h.listExpiredWaitingSteps("2026-04-15T00:00:00.000Z");
+    expect(before).toHaveLength(0);
+    const after = h.listExpiredWaitingSteps("2026-04-15T00:01:00.000Z");
+    expect(after.map((r) => r.id)).toEqual(["ws-t"]);
+    db.close();
+  });
+
+  it("resolveWaitingStep sets resolved_at + event id, once", () => {
+    const db = newMemDb();
+    seedRun(db, "run-r");
+    const h = createHelpers(db);
+    h.insertWaitingStep({
+      id: "wr",
+      run_id: "run-r",
+      step_name: "sr",
+      event_type: "x",
+      match_payload: null,
+      match_correlation_id: null,
+      expires_at: "2026-04-15T00:01:00.000Z",
+      resolved_at: null,
+      resolved_event_id: null,
+    });
+    h.resolveWaitingStep("run-r", "sr", "ev-1", "2026-04-15T00:00:30.000Z");
+    const got1 = h.getWaitingStep("run-r", "sr");
+    expect(got1?.resolved_event_id).toBe("ev-1");
+    // Second resolve is a no-op (resolved_at IS NULL guard).
+    h.resolveWaitingStep("run-r", "sr", "ev-2", "2026-04-15T00:00:40.000Z");
+    const got2 = h.getWaitingStep("run-r", "sr");
+    expect(got2?.resolved_event_id).toBe("ev-1");
+    db.close();
+  });
+});
+
+describe("migration", () => {
+  it("runs migrations twice, idempotent, when events+waiting_steps already exist", () => {
+    const db = newMemDb();
+    // Fresh DB; run a second migration pass.
+    expect(() => runMigrations(db)).not.toThrow();
+    const tables = db
+      .prepare(`SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`)
+      .all()
+      .map((r) => (r as { name: string }).name);
+    expect(tables).toContain("events");
+    expect(tables).toContain("waiting_steps");
     db.close();
   });
 });
