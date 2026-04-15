@@ -1,11 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import type { DatabaseType } from "../db.js";
+import type { EventDispatcher } from "../triggers/event.js";
 import { registerManifestRoute, API_VERSION } from "./manifest.js";
 import { registerWorkflowsRoutes } from "./workflows.js";
 import { registerRunsRoutes } from "./runs.js";
 import { registerErrorsRoutes } from "./errors.js";
 import { registerPatchesRoutes } from "./patches.js";
 import { registerIntegrationsRoutes } from "./integrations.js";
+import { registerEventsRoutes } from "./events.js";
 
 /**
  * Mount the read-only JSON API under /api/*.
@@ -29,6 +31,11 @@ export interface RegisterApiOptions {
    * If omitted (or empty), rely on 127.0.0.1 binding for security.
    */
   apiToken?: string | null;
+  /**
+   * EventDispatcher for the POST /api/events route. When omitted, the
+   * events routes are skipped (read-only clients don't need them).
+   */
+  eventDispatcher?: EventDispatcher;
 }
 
 export function registerApiRoutes(
@@ -73,6 +80,9 @@ export function registerApiRoutes(
   registerErrorsRoutes(app, db);
   registerPatchesRoutes(app, db);
   registerIntegrationsRoutes(app, db);
+  if (opts.eventDispatcher) {
+    registerEventsRoutes(app, db, { dispatcher: opts.eventDispatcher });
+  }
 }
 
 export { API_VERSION, CHORUS_API_MEDIA_TYPE, buildManifest } from "./manifest.js";
@@ -102,3 +112,11 @@ export {
   type PatchDetail,
 } from "./patches.js";
 export { IntegrationSummarySchema, type IntegrationSummary } from "./integrations.js";
+export {
+  EventSummarySchema,
+  WaitingStepSummarySchema,
+  registerEventsRoutes,
+  type EventSummary,
+  type WaitingStepSummary,
+  type RegisterEventsRoutesOptions,
+} from "./events.js";

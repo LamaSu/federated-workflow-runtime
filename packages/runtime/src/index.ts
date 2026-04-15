@@ -11,11 +11,13 @@ export {
   type CredentialRow,
   type CredentialState,
   type DatabaseType,
+  type EventRow,
   type RunRow,
   type RunStatus,
   type StepRow,
   type StepStatus,
   type TriggerRow,
+  type WaitingStepRow,
   type WorkflowRow,
 } from "./db.js";
 
@@ -51,13 +53,25 @@ export {
 export {
   DEFAULT_RETRY,
   Executor,
+  WaitForEventTimeoutError,
   computeBackoff,
   type ExecutorOptions,
   type ExecutorResult,
   type IntegrationLoader,
   type RetryPolicy,
   type StepContext,
+  type WaitForEventResult,
 } from "./executor.js";
+
+export {
+  EventDispatcher,
+  TIMEOUT_EVENT_ID,
+  eventMatches,
+  type EmitEventInput,
+  type EmitResult,
+  type EventDispatcherOptions,
+  type EventTriggerEntry,
+} from "./triggers/event.js";
 
 export {
   CronScheduler,
@@ -84,7 +98,10 @@ export {
   DEFAULT_INTERVAL_MS,
   DEFAULT_LEAD_TIME_MS,
   OAuthRefresher,
+  defaultOAuth2Refresh,
   startOAuthRefresher,
+  type DefaultOAuth2RefreshOptions,
+  type ManifestLookup,
   type OAuthRefresherOptions,
   type RefreshFn,
   type RefreshedToken,

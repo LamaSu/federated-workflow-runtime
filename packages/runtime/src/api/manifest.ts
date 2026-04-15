@@ -130,6 +130,24 @@ export function buildManifest(authMode: "localhost" | "bearer"): ApiManifest {
           "Installed integrations with summary stats (last used, error count, patch count).",
         responseShape: "{ integrations: IntegrationSummary[] }",
       },
+      {
+        path: "/api/events",
+        method: "GET",
+        description:
+          "Recent events on the internal bus. Filter by ?type=. Each row is an EventSummary.",
+        query: {
+          type: "optional event type filter",
+          limit: "integer, 1..500, default 50",
+        },
+        responseShape: "{ events: EventSummary[] }",
+      },
+      {
+        path: "/api/events/waiting",
+        method: "GET",
+        description:
+          "Runs currently parked on step.waitForEvent. Agents render this as a 'waiting on…' list.",
+        responseShape: "{ waiting: WaitingStepSummary[] }",
+      },
     ],
     dataModel: {
       WorkflowSummary:
@@ -150,6 +168,10 @@ export function buildManifest(authMode: "localhost" | "bearer"): ApiManifest {
         "PatchSummary + { manifest: object, hasSigstoreBundle: boolean, hasEd25519Signature: boolean }",
       IntegrationSummary:
         "{ name: string, runCount: number, errorCount: number, patchCount: number, lastUsedAt: ISO8601|null }",
+      EventSummary:
+        "{ id: string, type: string, payload: unknown, source: string|null, emittedAt: ISO8601, correlationId: string|null, consumedByRun: string|null }",
+      WaitingStepSummary:
+        "{ id: string, runId: string, stepName: string, eventType: string, matchCorrelationId: string|null, expiresAt: ISO8601, resolvedAt: ISO8601|null, resolvedEventId: string|null }",
     },
     capabilities: [
       "workflows.list",
@@ -165,6 +187,9 @@ export function buildManifest(authMode: "localhost" | "bearer"): ApiManifest {
       "patches.filter.byIntegration",
       "patches.filter.byStage",
       "integrations.list",
+      "events.emit",
+      "events.list",
+      "events.waiting.list",
     ],
     conventions: {
       timestamps: "ISO 8601 UTC (e.g. 2026-04-14T12:34:56.789Z). Treat null as 'not applicable yet'.",

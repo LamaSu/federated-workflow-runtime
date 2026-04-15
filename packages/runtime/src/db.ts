@@ -689,11 +689,11 @@ export class QueryHelpers {
   listRecentEvents(type?: string, limit = 50): EventRow[] {
     if (type) {
       return this.get(
-        `SELECT * FROM events WHERE type = ? ORDER BY emitted_at DESC LIMIT ?`,
+        `SELECT * FROM events WHERE type = ? ORDER BY emitted_at DESC, rowid DESC LIMIT ?`,
       ).all(type, limit) as EventRow[];
     }
     return this.get(
-      `SELECT * FROM events ORDER BY emitted_at DESC LIMIT ?`,
+      `SELECT * FROM events ORDER BY emitted_at DESC, rowid DESC LIMIT ?`,
     ).all(limit) as EventRow[];
   }
 
