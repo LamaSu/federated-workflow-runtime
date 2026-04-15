@@ -39,6 +39,28 @@ export function openDatabase(path: string): DatabaseType {
  * Applies all schema migrations to the given database. Idempotent.
  */
 export function runMigrations(db: DatabaseType): void {
+  // Pre-flight: handle a legacy `credentials` table (missing the
+  // `credential_type_name` column). We must ALTER it BEFORE the main
+  // db.exec() runs, because the main CREATE INDEX includes
+  // credential_type_name and SQLite would fail mid-exec otherwise.
+  // See docs/CREDENTIALS_ANALYSIS.md section 5.1.
+  const credentialsTableExists = db
+    .prepare(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='credentials'`,
+    )
+    .get() as { name?: string } | undefined;
+  if (credentialsTableExists?.name) {
+    const credentialCols = db
+      .prepare<[], { name: string }>(`PRAGMA table_info(credentials)`)
+      .all()
+      .map((r) => (r as unknown as { name: string }).name);
+    if (!credentialCols.includes("credential_type_name")) {
+      db.exec(
+        `ALTER TABLE credentials ADD COLUMN credential_type_name TEXT NOT NULL DEFAULT ''`,
+      );
+    }
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS schema_meta (
       key   TEXT PRIMARY KEY,
@@ -112,12 +134,13 @@ export function runMigrations(db: DatabaseType): void {
     CREATE INDEX IF NOT EXISTS idx_steps_status ON steps(run_id, status);
 
     -- Credentials (AES-256-GCM encrypted) --------------------------------------
-    -- `type` is the auth envelope (apiKey|oauth2|basic|bearer|none); it
-    -- stays named `type` in the DB for back-compat even though the TS
-    -- schema renames it to `authType`.
-    -- `credential_type_name` (docs/CREDENTIALS_ANALYSIS.md §4.6) links the
-    -- row to a CredentialTypeDefinition in the integration manifest.
-    -- Pre-catalog rows are backfilled to `<integration>:legacy` below.
+    -- The 'type' column is the auth envelope
+    -- (apiKey|oauth2|basic|bearer|none); it stays named 'type' in the DB
+    -- for back-compat even though the TS schema renames it to 'authType'.
+    -- The 'credential_type_name' column (docs/CREDENTIALS_ANALYSIS.md
+    -- section 4.6) links the row to a CredentialTypeDefinition in the
+    -- integration manifest. Pre-catalog rows are backfilled to
+    -- integration+':legacy' below.
     CREATE TABLE IF NOT EXISTS credentials (
       id                    TEXT PRIMARY KEY,
       integration           TEXT NOT NULL,
@@ -253,6 +276,19 @@ export function runMigrations(db: DatabaseType): void {
     }
   }
 
+  // Credential catalog migration (docs/CREDENTIALS_ANALYSIS.md section 5.1).
+  // Backfill: any credentials row with an empty credential_type_name
+  // becomes integration+':legacy'. The resolver in credential-catalog.ts
+  // falls back to authType matching for these rows, so integrations that
+  // adopt credentialTypes[] keep working without explicit migration.
+  // (The column itself was added in the pre-flight block above for
+  // legacy DBs; fresh DBs already have it via the CREATE TABLE.)
+  db.prepare(
+    `UPDATE credentials
+        SET credential_type_name = integration || ':legacy'
+      WHERE credential_type_name = ''`,
+  ).run();
+
   db.prepare(
     "INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('schema_version', ?)",
   ).run(String(SCHEMA_VERSION));
@@ -318,7 +354,14 @@ export interface StepRow {
 export interface CredentialRow {
   id: string;
   integration: string;
+  /** Auth envelope ('apiKey' | 'oauth2' | 'basic' | 'bearer' | 'none'). */
   type: string;
+  /**
+   * Links the row to a CredentialTypeDefinition in the integration
+   * manifest. Pre-catalog rows are backfilled to integration+':legacy'
+   * by runMigrations. See docs/CREDENTIALS_ANALYSIS.md section 4.6 + 5.
+   */
+  credential_type_name: string;
   name: string;
   encrypted_payload: Buffer;
   oauth_access_expires: string | null;
@@ -512,16 +555,24 @@ export class QueryHelpers {
   // Credentials --------------------------------------------------------------
 
   insertCredential(row: CredentialRow): void {
+    // Default credential_type_name to integration+':legacy' if omitted
+    // by callers that haven't migrated to the catalog yet. Keeps old
+    // tests (seedCredential etc.) working without per-test edits.
+    const credentialTypeName =
+      row.credential_type_name && row.credential_type_name.length > 0
+        ? row.credential_type_name
+        : `${row.integration}:legacy`;
     this.get(
       `INSERT OR REPLACE INTO credentials
-         (id, integration, type, name, encrypted_payload,
+         (id, integration, type, credential_type_name, name, encrypted_payload,
           oauth_access_expires, oauth_refresh_expires, oauth_scopes,
           state, last_error, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       row.id,
       row.integration,
       row.type,
+      credentialTypeName,
       row.name,
       row.encrypted_payload,
       row.oauth_access_expires,
@@ -552,6 +603,25 @@ export class QueryHelpers {
            AND oauth_access_expires IS NOT NULL
            AND oauth_access_expires < ?`,
     ).all(beforeIso) as CredentialRow[];
+  }
+
+  /**
+   * List all active non-OAuth credentials — used by the expiry-alarm
+   * cron to emit credential.expiring warnings for PATs / API keys that
+   * have no automated refresh path. See expiry-alarm.ts.
+   */
+  listActiveNonOAuthCredentials(): CredentialRow[] {
+    return this.get(
+      `SELECT * FROM credentials
+         WHERE type != 'oauth2'
+           AND state = 'active'`,
+    ).all() as CredentialRow[];
+  }
+
+  listAllCredentials(): CredentialRow[] {
+    return this.get(
+      `SELECT * FROM credentials ORDER BY integration, name`,
+    ).all() as CredentialRow[];
   }
 
   markCredentialInvalid(id: string, error: string, nowIso: string): void {

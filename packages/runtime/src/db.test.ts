@@ -479,3 +479,204 @@ describe("migration", () => {
     db.close();
   });
 });
+
+// ── Credential catalog migration (docs/CREDENTIALS_ANALYSIS.md §5.1) ─────────
+
+describe("credential catalog migration", () => {
+  it("fresh DB has credential_type_name column and its index", () => {
+    const db = newMemDb();
+    const cols = db
+      .prepare(`PRAGMA table_info(credentials)`)
+      .all()
+      .map((r) => (r as { name: string }).name);
+    expect(cols).toContain("credential_type_name");
+
+    const indexes = db
+      .prepare(`SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='credentials'`)
+      .all()
+      .map((r) => (r as { name: string }).name);
+    expect(indexes).toContain("idx_credentials_type_name");
+    db.close();
+  });
+
+  it("ALTER TABLE + backfill for legacy DB (pre-catalog schema)", () => {
+    // Simulate a pre-catalog DB: create the credentials table WITHOUT the
+    // credential_type_name column, insert a row, then run migrations.
+    const db = new Database(":memory:");
+    db.exec(`
+      CREATE TABLE credentials (
+        id                    TEXT PRIMARY KEY,
+        integration           TEXT NOT NULL,
+        type                  TEXT NOT NULL,
+        name                  TEXT NOT NULL,
+        encrypted_payload     BLOB NOT NULL,
+        oauth_access_expires  TEXT,
+        oauth_refresh_expires TEXT,
+        oauth_scopes          TEXT,
+        state                 TEXT NOT NULL DEFAULT 'active',
+        last_error            TEXT,
+        created_at            TEXT NOT NULL,
+        updated_at            TEXT NOT NULL,
+        UNIQUE(integration, name)
+      );
+      CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    `);
+    db.prepare(
+      `INSERT INTO credentials (id, integration, type, name, encrypted_payload, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      "c-legacy",
+      "slack-send",
+      "bearer",
+      "default",
+      Buffer.from([0, 1]),
+      "2026-04-15T00:00:00.000Z",
+      "2026-04-15T00:00:00.000Z",
+    );
+    // Now run the full migration (should ALTER + backfill).
+    runMigrations(db as unknown as ReturnType<typeof openDatabase>);
+
+    const cols = db
+      .prepare(`PRAGMA table_info(credentials)`)
+      .all()
+      .map((r) => (r as { name: string }).name);
+    expect(cols).toContain("credential_type_name");
+
+    const row = db
+      .prepare(`SELECT credential_type_name FROM credentials WHERE id = ?`)
+      .get("c-legacy") as { credential_type_name: string };
+    expect(row.credential_type_name).toBe("slack-send:legacy");
+    db.close();
+  });
+
+  it("insertCredential defaults empty credential_type_name to '<integration>:legacy'", () => {
+    const db = newMemDb();
+    const h = createHelpers(db);
+    h.insertCredential({
+      id: "c-x",
+      integration: "slack-send",
+      type: "bearer",
+      credential_type_name: "", // explicitly empty
+      name: "default",
+      encrypted_payload: Buffer.from([0]),
+      oauth_access_expires: null,
+      oauth_refresh_expires: null,
+      oauth_scopes: null,
+      state: "active",
+      last_error: null,
+      created_at: "2026-04-15T00:00:00.000Z",
+      updated_at: "2026-04-15T00:00:00.000Z",
+    });
+    const row = h.getCredential("c-x") as CredentialRow & {
+      credential_type_name: string;
+    };
+    expect(row.credential_type_name).toBe("slack-send:legacy");
+    db.close();
+  });
+
+  it("insertCredential respects explicit credential_type_name", () => {
+    const db = newMemDb();
+    const h = createHelpers(db);
+    h.insertCredential({
+      id: "c-y",
+      integration: "slack-send",
+      type: "oauth2",
+      credential_type_name: "slackOAuth2Bot",
+      name: "work",
+      encrypted_payload: Buffer.from([0]),
+      oauth_access_expires: "2026-05-01T00:00:00.000Z",
+      oauth_refresh_expires: null,
+      oauth_scopes: null,
+      state: "active",
+      last_error: null,
+      created_at: "2026-04-15T00:00:00.000Z",
+      updated_at: "2026-04-15T00:00:00.000Z",
+    });
+    const row = h.getCredential("c-y") as CredentialRow & {
+      credential_type_name: string;
+    };
+    expect(row.credential_type_name).toBe("slackOAuth2Bot");
+    db.close();
+  });
+
+  it("listActiveNonOAuthCredentials returns only apiKey/bearer/basic", () => {
+    const db = newMemDb();
+    const h = createHelpers(db);
+    const base = {
+      encrypted_payload: Buffer.from([0]),
+      oauth_access_expires: null,
+      oauth_refresh_expires: null,
+      oauth_scopes: null,
+      state: "active" as const,
+      last_error: null,
+      created_at: "2026-04-15T00:00:00.000Z",
+      updated_at: "2026-04-15T00:00:00.000Z",
+    };
+    h.insertCredential({
+      ...base,
+      id: "c-pat",
+      integration: "github",
+      type: "apiKey",
+      credential_type_name: "githubPAT",
+      name: "personal",
+    });
+    h.insertCredential({
+      ...base,
+      id: "c-oauth",
+      integration: "slack-send",
+      type: "oauth2",
+      credential_type_name: "slackOAuth2Bot",
+      name: "work",
+    });
+    h.insertCredential({
+      ...base,
+      id: "c-bearer",
+      integration: "slack-send",
+      type: "bearer",
+      credential_type_name: "slackUserToken",
+      name: "legacy",
+    });
+    const rows = h.listActiveNonOAuthCredentials();
+    const ids = rows.map((r) => r.id).sort();
+    expect(ids).toEqual(["c-bearer", "c-pat"]);
+    db.close();
+  });
+
+  it("listAllCredentials returns everything ordered", () => {
+    const db = newMemDb();
+    const h = createHelpers(db);
+    h.insertCredential({
+      id: "c-b",
+      integration: "zzz",
+      type: "apiKey",
+      credential_type_name: "",
+      name: "default",
+      encrypted_payload: Buffer.from([0]),
+      oauth_access_expires: null,
+      oauth_refresh_expires: null,
+      oauth_scopes: null,
+      state: "active",
+      last_error: null,
+      created_at: "2026-04-15T00:00:00.000Z",
+      updated_at: "2026-04-15T00:00:00.000Z",
+    });
+    h.insertCredential({
+      id: "c-a",
+      integration: "aaa",
+      type: "apiKey",
+      credential_type_name: "",
+      name: "default",
+      encrypted_payload: Buffer.from([0]),
+      oauth_access_expires: null,
+      oauth_refresh_expires: null,
+      oauth_scopes: null,
+      state: "active",
+      last_error: null,
+      created_at: "2026-04-15T00:00:00.000Z",
+      updated_at: "2026-04-15T00:00:00.000Z",
+    });
+    const all = h.listAllCredentials();
+    expect(all.map((r) => r.integration)).toEqual(["aaa", "zzz"]);
+    db.close();
+  });
+});
