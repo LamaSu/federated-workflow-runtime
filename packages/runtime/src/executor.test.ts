@@ -18,6 +18,7 @@ function makeIntegration(
     version: "1.0.0",
     description: "test",
     authType: "none",
+    credentialTypes: [],
     operations: Object.keys(operations).map((op) => ({
       name: op,
       description: op,
@@ -51,6 +52,7 @@ function makeCtxIntegration(
     version: "1.0.0",
     description: "test",
     authType: "none",
+    credentialTypes: [],
     operations: Object.keys(operations).map((op) => ({
       name: op,
       description: op,

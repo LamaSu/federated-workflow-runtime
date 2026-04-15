@@ -35,6 +35,7 @@ function makeContext(): RepairContext {
       version: "1.4.2",
       description: "Slack",
       authType: "oauth2",
+      credentialTypes: [],
       operations: [],
     },
     sourceFiles: [

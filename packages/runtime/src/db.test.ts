@@ -186,6 +186,7 @@ describe("QueryHelpers", () => {
     const db = newMemDb();
     const h = createHelpers(db);
     const base: Omit<CredentialRow, "id" | "integration" | "type" | "name" | "oauth_access_expires"> = {
+      credential_type_name: "",
       encrypted_payload: Buffer.from([0, 1, 2]),
       oauth_refresh_expires: null,
       oauth_scopes: null,
@@ -231,6 +232,7 @@ describe("QueryHelpers", () => {
       integration: "slack",
       type: "oauth2",
       name: "main",
+      credential_type_name: "",
       encrypted_payload: Buffer.from([0]),
       oauth_access_expires: "2026-05-13T00:00:00Z",
       oauth_refresh_expires: null,

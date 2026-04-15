@@ -148,6 +148,7 @@ async function loadManifest(integrationDir: string): Promise<IntegrationManifest
       version: pkg.version,
       description: pkg.description ?? "",
       authType: "none",
+      credentialTypes: [],
       operations: [],
     } satisfies IntegrationManifest;
   } catch {

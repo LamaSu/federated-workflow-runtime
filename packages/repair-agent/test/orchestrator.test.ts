@@ -44,6 +44,7 @@ function stubContext(): RepairContext {
       version: "1.4.2",
       description: "Slack",
       authType: "oauth2",
+      credentialTypes: [],
       operations: [],
     },
     sourceFiles: [{ relPath: "src/client.ts", contents: "export const x = 1;\n" }],
