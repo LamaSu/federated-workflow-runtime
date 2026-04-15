@@ -29,6 +29,7 @@ import {
   credentialsRemove,
   type CredentialType,
 } from "./commands/credentials.js";
+import { fireEvent, watchEvents, listWaiting } from "./commands/event.js";
 
 const VERSION = "0.1.0";
 
@@ -213,6 +214,51 @@ export function buildProgram(): Command {
     .description("remove a stored credential")
     .action(async (integration: string, name: string) => {
       const code = await credentialsRemove({ integration, name });
+      process.exit(code);
+    });
+
+  // ── event ────────────────────────────────────────────────────────────────
+  const evt = program
+    .command("event")
+    .description("fire, watch, and inspect the internal event bus (v1.1 — waitForEvent)");
+
+  evt
+    .command("fire <type>")
+    .description("emit an event via the runtime HTTP API")
+    .option("--payload <json>", "JSON payload (or @path/to/file.json)")
+    .option("--correlation <id>", "correlationId to tag the event with")
+    .option("--source <name>", "source label for the event")
+    .action(
+      async (
+        type: string,
+        opts: { payload?: string; correlation?: string; source?: string },
+      ) => {
+        const code = await fireEvent({
+          type,
+          payload: opts.payload,
+          correlationId: opts.correlation,
+          source: opts.source,
+        });
+        process.exit(code);
+      },
+    );
+
+  evt
+    .command("watch [type]")
+    .description("tail recent events (read-only)")
+    .option("--limit <n>", "max events to show", (v) => Number.parseInt(v, 10), 50)
+    .option("--json", "output JSON")
+    .action(async (type: string | undefined, opts: { limit?: number; json?: boolean }) => {
+      const code = await watchEvents({ type, limit: opts.limit, json: opts.json });
+      process.exit(code);
+    });
+
+  evt
+    .command("list-waiting")
+    .description("show runs currently parked on step.waitForEvent")
+    .option("--json", "output JSON")
+    .action(async (opts: { json?: boolean }) => {
+      const code = await listWaiting({ json: opts.json });
       process.exit(code);
     });
 
