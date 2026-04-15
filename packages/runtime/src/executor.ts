@@ -1,13 +1,17 @@
+import { randomUUID } from "node:crypto";
 import type {
   IntegrationModule,
   Logger,
   Node as WorkflowNode,
   OperationContext,
   OperationHandler,
+  WaitForEventCall,
   Workflow,
 } from "@chorus/core";
+import { WaitForEventCallSchema } from "@chorus/core";
 import type { DatabaseType, StepRow } from "./db.js";
 import { QueryHelpers } from "./db.js";
+import { TIMEOUT_EVENT_ID } from "./triggers/event.js";
 
 /**
  * Runtime executor — replay-based durable execution per §4.3.
@@ -61,9 +65,67 @@ export interface ExecutorOptions {
 
 export interface ExecutorResult {
   runId: string;
-  status: "success" | "failed";
+  status: "success" | "failed" | "waiting";
   steps: StepRow[];
   error?: string;
+  /**
+   * When status='waiting', which step the run parked on. The dispatch loop
+   * will re-enqueue this run when the waiting_steps row resolves (via event)
+   * or expires (timeout).
+   */
+  waitingOn?: { stepName: string; eventType: string };
+}
+
+/**
+ * Result payload returned by `step.waitForEvent` on success.
+ */
+export interface WaitForEventResult {
+  event: {
+    id: string;
+    type: string;
+    payload: unknown;
+    source: string | null;
+    correlationId: string | null;
+    emittedAt: string;
+  };
+}
+
+/**
+ * Thrown by `step.waitForEvent` when the waiting_steps row has expired
+ * (reached its timeoutMs deadline). Distinguish from a generic Error so
+ * integration authors can try/catch cleanly:
+ *
+ *   try {
+ *     await step.waitForEvent({ eventType: "x", timeoutMs: 60_000 });
+ *   } catch (err) {
+ *     if (err instanceof WaitForEventTimeoutError) {
+ *       // plan B
+ *     }
+ *   }
+ */
+export class WaitForEventTimeoutError extends Error {
+  constructor(eventType: string, timeoutMs: number) {
+    super(`Timed out waiting for event "${eventType}" after ${timeoutMs}ms`);
+    this.name = "WaitForEventTimeoutError";
+  }
+}
+
+/**
+ * Internal control-flow signal: thrown when the current run must suspend
+ * until a waiting_steps row resolves. The outer `run()` catches this and
+ * returns status='waiting' — the run is NOT failed, just parked.
+ *
+ * Not exported: integration authors should never see this; if it escapes
+ * `run()`, that's a bug worth catching in tests.
+ */
+class SuspendForEvent extends Error {
+  constructor(
+    public readonly stepName: string,
+    public readonly eventType: string,
+  ) {
+    super(`run suspended, waiting for event "${eventType}" in step "${stepName}"`);
+    this.name = "SuspendForEvent";
+  }
 }
 
 /**
@@ -74,6 +136,21 @@ export interface ExecutorResult {
 export interface StepContext {
   run<T>(name: string, fn: () => Promise<T>): Promise<T>;
   sleep(name: string, durationMs: number): Promise<void>;
+  /**
+   * Durably wait for an external event (ROADMAP §6). Survives process
+   * restarts — a waiting_steps row is persisted; the dispatch loop
+   * resolves it when a matching event arrives or the timeout passes.
+   *
+   * On success, returns `{ event: ... }` with the matched payload.
+   * On timeout, throws `WaitForEventTimeoutError`.
+   *
+   * Replay semantics mirror `step.run`:
+   *   - First call parks and suspends.
+   *   - Replay with resolved row → returns cached payload.
+   *   - Replay with timed-out row → throws deterministic TimeoutError.
+   *   - Replay with still-pending row → suspends again.
+   */
+  waitForEvent(stepName: string, call: WaitForEventCall): Promise<WaitForEventResult>;
 }
 
 export class Executor {
@@ -151,6 +228,13 @@ export class Executor {
           });
           return out;
         } catch (err) {
+          // SuspendForEvent is not a failure — it's a control signal that
+          // the run must park. Do NOT overwrite the step row; the inner
+          // waitForEvent already wrote a 'running' row on insert. Re-throw
+          // so the outer run() catches it and returns status='waiting'.
+          if (err instanceof SuspendForEvent) {
+            throw err;
+          }
           const e = err as Error;
           const finishedAt = this.now().toISOString();
           this.helpers.upsertStep({
@@ -191,6 +275,119 @@ export class Executor {
           duration_ms: durationMs,
         });
       },
+
+      waitForEvent: async (
+        name: string,
+        rawCall: WaitForEventCall,
+      ): Promise<WaitForEventResult> => {
+        const call = WaitForEventCallSchema.parse(rawCall);
+
+        // 1. Fast-path: step already completed (prior resolution cached as
+        //    a step row output, OR on replay we look at the waiting_steps
+        //    row).
+        const completedStep = this.helpers.getCompletedStep(runId, name);
+        if (completedStep && completedStep.output) {
+          // Previous resolution stored as the step's JSON output.
+          return JSON.parse(completedStep.output) as WaitForEventResult;
+        }
+
+        // 2. Look up the waiting_steps row for this run+step.
+        const existing = this.helpers.getWaitingStep(runId, name);
+
+        if (existing && existing.resolved_at) {
+          // Already resolved (by dispatcher or timeout expiry). Complete
+          // the step durably and return the result — OR throw timeout.
+          if (existing.resolved_event_id === TIMEOUT_EVENT_ID) {
+            const finishedAt = this.now().toISOString();
+            this.helpers.upsertStep({
+              run_id: runId,
+              step_name: name,
+              attempt: 1,
+              status: "failed",
+              input: JSON.stringify(call),
+              output: null,
+              error: `timed out after ${call.timeoutMs}ms`,
+              error_sig_hash: null,
+              started_at: existing.resolved_at,
+              finished_at: finishedAt,
+              duration_ms: 0,
+            });
+            throw new WaitForEventTimeoutError(call.eventType, call.timeoutMs);
+          }
+
+          const event = this.helpers.getEvent(existing.resolved_event_id ?? "");
+          if (!event) {
+            // Should never happen (resolve writes the event id), but handle
+            // defensively — treat as timeout to keep replay deterministic.
+            throw new WaitForEventTimeoutError(call.eventType, call.timeoutMs);
+          }
+          const result: WaitForEventResult = {
+            event: {
+              id: event.id,
+              type: event.type,
+              payload: safeParseJsonExecutor(event.payload),
+              source: event.source,
+              correlationId: event.correlation_id,
+              emittedAt: event.emitted_at,
+            },
+          };
+          const finishedAt = this.now().toISOString();
+          this.helpers.upsertStep({
+            run_id: runId,
+            step_name: name,
+            attempt: 1,
+            status: "success",
+            input: JSON.stringify(call),
+            output: JSON.stringify(result),
+            error: null,
+            error_sig_hash: null,
+            started_at: existing.resolved_at,
+            finished_at: finishedAt,
+            duration_ms: 0,
+          });
+          return result;
+        }
+
+        // 3. Insert or refresh the waiting_steps row (first call or replay
+        //    while still pending).
+        if (!existing) {
+          const startedAt = this.now().toISOString();
+          const expiresAt = new Date(
+            Date.parse(startedAt) + call.timeoutMs,
+          ).toISOString();
+          this.helpers.insertWaitingStep({
+            id: randomUUID(),
+            run_id: runId,
+            step_name: name,
+            event_type: call.eventType,
+            match_payload: call.matchPayload
+              ? JSON.stringify(call.matchPayload)
+              : null,
+            match_correlation_id: call.matchCorrelationId ?? null,
+            expires_at: expiresAt,
+            resolved_at: null,
+            resolved_event_id: null,
+          });
+          // Also write a 'running' step row so the steps table reflects the
+          // wait. It'll be upserted to 'success'/'failed' on resolve/timeout.
+          this.helpers.upsertStep({
+            run_id: runId,
+            step_name: name,
+            attempt: 1,
+            status: "running",
+            input: JSON.stringify(call),
+            output: null,
+            error: null,
+            error_sig_hash: null,
+            started_at: startedAt,
+            finished_at: null,
+            duration_ms: null,
+          });
+        }
+
+        // 4. Suspend — throw a control-flow signal the outer run() catches.
+        throw new SuspendForEvent(name, call.eventType);
+      },
     });
 
     const step = makeStepContext();
@@ -199,7 +396,7 @@ export class Executor {
     try {
       for (const node of workflow.nodes) {
         const output = await step.run(node.id, () =>
-          this.invokeNode(node, triggerPayload),
+          this.invokeNode(node, triggerPayload, step),
         );
         const stepRow = this.helpers.getStep(runId, node.id);
         if (stepRow) steps.push(stepRow);
@@ -207,6 +404,20 @@ export class Executor {
       }
       return { runId, status: "success", steps };
     } catch (err) {
+      // Suspension signal: the run is parked on a waiting_steps row. Return
+      // status='waiting' — the dispatch loop will re-enqueue when the event
+      // arrives or timeout expires. This is NOT a failure.
+      if (err instanceof SuspendForEvent) {
+        logger.info(
+          `run ${runId} suspended in step "${err.stepName}" waiting for event "${err.eventType}"`,
+        );
+        return {
+          runId,
+          status: "waiting",
+          steps: this.helpers.listSteps(runId),
+          waitingOn: { stepName: err.stepName, eventType: err.eventType },
+        };
+      }
       const e = err as Error;
       logger.error(`run ${runId} failed: ${e.message}`);
       return {
@@ -221,8 +432,17 @@ export class Executor {
   /**
    * Invoke a single node with retry + backoff. Exposed as a named method so
    * tests can stub invocation cleanly.
+   *
+   * When `stepCtx` is provided, it's attached to the OperationContext as a
+   * `step` property so integration handlers can call `step.run(...)` and
+   * `step.waitForEvent(...)` as sub-steps within a single node. Handlers
+   * opt-in by destructuring; otherwise the field is ignored.
    */
-  async invokeNode(node: WorkflowNode, triggerPayload: unknown): Promise<unknown> {
+  async invokeNode(
+    node: WorkflowNode,
+    triggerPayload: unknown,
+    stepCtx?: StepContext,
+  ): Promise<unknown> {
     const retryCfg = node.retry
       ? {
           maxAttempts: node.retry.maxAttempts,
@@ -239,6 +459,11 @@ export class Executor {
       logger: this.logger,
       signal: this.opts.signal ?? new AbortController().signal,
     };
+    if (stepCtx) {
+      // Structural extension — existing handlers ignore, handlers that
+      // opt-in read ctx.step from a cast.
+      (ctx as OperationContext & { step: StepContext }).step = stepCtx;
+    }
 
     let lastErr: Error | null = null;
     for (let attempt = 1; attempt <= retryCfg.maxAttempts; attempt++) {
@@ -248,6 +473,9 @@ export class Executor {
       try {
         return await handler(input, ctx);
       } catch (err) {
+        // Suspension signals are NOT retryable — they're cooperative pauses
+        // for waitForEvent. Propagate immediately.
+        if (err instanceof SuspendForEvent) throw err;
         lastErr = err as Error;
         if (attempt >= retryCfg.maxAttempts) break;
         if (node.onError === "fail") break;
@@ -288,4 +516,12 @@ function consoleLogger(): Logger {
     warn: (m) => console.warn(`[runtime] ${m}`),
     error: (m) => console.error(`[runtime] ${m}`),
   };
+}
+
+function safeParseJsonExecutor(s: string): unknown {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
 }
