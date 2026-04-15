@@ -199,3 +199,344 @@ Decision table. For each feature: **ADOPT-NOW** (Wave 2 implements), **DEFER-V2*
 | 2.9 | Expression evaluation inside credential defaults | **SKIP-FOREVER** | Massive footgun surface (template injection vector). If someone needs a computed URL, they compute it in the operation handler. |
 
 ---
+
+## 4. Upgrade design — concrete schema additions
+
+All new types live in `packages\core\src\schemas.ts` alongside the existing schemas. `credentials-oscar`: copy these verbatim, then add the corresponding `z.infer` exports in `packages\core\src\types.ts`.
+
+### 4.1 New: `CredentialFieldSchema` (field declarations)
+
+A single credential field — "API Key", "Workspace URL", "Client ID", etc. Integration authors declare an array of these per credential type. The CLI reads this list to prompt the user; `mcp-papa` reads it to render MCP tool input schemas.
+
+```typescript
+export const CredentialFieldSchema = z.object({
+  /** Machine-readable field name. Becomes the key in the encrypted payload JSON. */
+  name: z.string().regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "must be a valid JS identifier"),
+
+  /** Human-readable label shown in CLI prompts and MCP tool descriptions. */
+  displayName: z.string().min(1).max(80),
+
+  /** Type drives prompt masking (password/url), validation, and render hints. */
+  type: z.enum([
+    "string",      // plain text, echoed
+    "password",    // masked in CLI, marked sensitive in MCP schemas
+    "url",         // validated as URL
+    "number",
+    "boolean",
+    "select",      // enum; must set `options`
+  ]),
+
+  /** Required fields error out if not supplied. */
+  required: z.boolean().default(true),
+
+  /** CLI uses this for prompt subtitle and MCP uses it for tool description text. */
+  description: z.string().max(500).optional(),
+
+  /** Optional link rendered inline: "Get your token at <deepLink>". */
+  deepLink: z.string().url().optional(),
+
+  /** Default value (plaintext). Use sparingly; never for secrets. */
+  default: z.union([z.string(), z.number(), z.boolean()]).optional(),
+
+  /** Enum members when type === "select". */
+  options: z.array(z.object({
+    value: z.string(),
+    label: z.string(),
+  })).optional(),
+
+  /** Regex validator. Applied as `new RegExp(pattern)` against the string form. */
+  pattern: z.string().optional(),
+
+  /** Character-length bounds (strings only). */
+  minLength: z.number().int().nonnegative().optional(),
+  maxLength: z.number().int().positive().optional(),
+
+  /** OAuth-only: this field is populated by the OAuth callback, not by the user. */
+  oauthManaged: z.boolean().default(false),
+});
+
+export type CredentialField = z.infer<typeof CredentialFieldSchema>;
+```
+
+**`oauthManaged` note:** for OAuth 2.0 credential types, fields like `accessToken` / `refreshToken` / `tokenExpiresAt` are set by the authorize-code-exchange step, never prompted. `oauthManaged: true` tells the CLI "don't ask; the OAuth flow fills this in."
+
+### 4.2 New: `CredentialTypeDefinitionSchema` (per-integration credential type)
+
+A full credential-type declaration. One integration may declare several (e.g., Slack: bot token OAuth vs legacy user token).
+
+```typescript
+export const CredentialOAuth2FlowSchema = z.object({
+  /** Provider authorize URL; users are redirected here to grant consent. */
+  authorizeUrl: z.string().url(),
+
+  /** Token exchange endpoint. Used by both initial code-for-token and refresh. */
+  tokenUrl: z.string().url(),
+
+  /** Optional: separate refresh URL if provider differs (rare). */
+  refreshUrl: z.string().url().optional(),
+
+  /** Space-separated or array scopes to request. */
+  scopes: z.array(z.string()).default([]),
+
+  /** OAuth 2.0 PKCE (RFC 7636). Recommended true for public clients. */
+  pkce: z.boolean().default(true),
+
+  /** How to send credentials to the token endpoint. */
+  clientAuthStyle: z.enum(["header", "body"]).default("header"),
+
+  /** Local redirect path. Composed with the runtime's configured base URL. */
+  redirectPath: z.string().startsWith("/").default("/oauth/callback"),
+
+  /**
+   * Optional extra query params for the authorize URL (e.g., `access_type=offline`
+   * for Google, `prompt=consent` for forcing refresh-token emission).
+   */
+  authorizeQueryParams: z.record(z.string()).default({}),
+});
+
+export const CredentialTestDefinitionSchema = z.object({
+  /**
+   * Name of an operation in this integration's `operations` array that the
+   * runtime should invoke (with fixed, safe inputs) to validate the credential.
+   * Alternatively, the integration may export a separate `testCredential()`
+   * function on its IntegrationModule — see §4.4.
+   */
+  viaOperation: z.string().optional(),
+
+  /**
+   * Human-readable description shown before the test runs
+   * ("This will call GET /api/user on Slack — no messages will be sent.").
+   */
+  description: z.string().max(200).optional(),
+});
+
+export const CredentialTypeDefinitionSchema = z.object({
+  /**
+   * Stable, machine-readable name. Globally unique within the integration.
+   * Examples: "slackOAuth2Bot", "slackUserToken", "githubPAT", "githubOAuth".
+   * Stored in the DB as `credential_type_name` (see §5 migration).
+   */
+  name: z.string().regex(/^[a-zA-Z][a-zA-Z0-9]*$/),
+
+  /** Human-readable label. "Slack Bot (OAuth 2.0)" vs "Slack User Token". */
+  displayName: z.string().min(1).max(80),
+
+  /** Which of the 5 underlying auth envelopes this is. Maps to existing `authType`. */
+  authType: z.enum(["none", "apiKey", "oauth2", "basic", "bearer"]),
+
+  /** Field list. Users fill these in via CLI or OAuth flow populates them. */
+  fields: z.array(CredentialFieldSchema).default([]),
+
+  /**
+   * OAuth flow metadata. Required iff authType === "oauth2".
+   * The runtime's OAuthRefresher reads this to know WHERE to refresh.
+   */
+  oauth: CredentialOAuth2FlowSchema.optional(),
+
+  /** Short description rendered in `chorus credentials add` picker. */
+  description: z.string().max(500).optional(),
+
+  /** Link to upstream docs ("how to create a PAT on this service"). */
+  documentationUrl: z.string().url().optional(),
+
+  /** Validation hook: either invoke an existing operation, or use IntegrationModule.testCredential. */
+  test: CredentialTestDefinitionSchema.optional(),
+}).refine(
+  (def) => def.authType !== "oauth2" || def.oauth !== undefined,
+  { message: "oauth metadata is required when authType === 'oauth2'" },
+);
+
+export type CredentialTypeDefinition = z.infer<typeof CredentialTypeDefinitionSchema>;
+export type CredentialOAuth2Flow = z.infer<typeof CredentialOAuth2FlowSchema>;
+```
+
+**Design note:** `authType` stays a top-level field on `CredentialTypeDefinition` (rather than being inferred from `oauth` presence) because it's load-bearing for three downstream consumers: the OAuthRefresher (only scans `type='oauth2'` rows), `mcp-papa` (decides whether to expose an `__authenticate` tool), and the storage layer (the existing SQLite column). Keep it explicit.
+
+### 4.3 Extend: `IntegrationManifestSchema`
+
+Add `credentialTypes` — an optional list. Integrations that declare `authType: "none"` may omit it. Everyone else should ship at least one type definition.
+
+```typescript
+export const IntegrationManifestSchema = z.object({
+  name: z.string(),
+  version: z.string(),
+  description: z.string(),
+  /**
+   * @deprecated in favor of credentialTypes[0].authType. Kept for v1.x back-compat
+   * — existing integrations won't recompile. New integrations should declare
+   * credentialTypes and ignore the top-level authType (set it to match the first
+   * credentialType's authType).
+   */
+  authType: z.enum(["none", "apiKey", "oauth2", "basic", "bearer"]),
+
+  /**
+   * Per-integration credential type catalog. Most integrations declare ONE;
+   * Slack-like integrations with multiple auth options declare several.
+   * When omitted, the runtime synthesizes a single anonymous type matching
+   * the legacy `authType` so old integrations keep working.
+   */
+  credentialTypes: z.array(CredentialTypeDefinitionSchema).default([]),
+
+  operations: z.array(OperationDefinitionSchema),
+  baseUrl: z.string().optional(),
+  docsUrl: z.string().optional(),
+}).refine(
+  (m) =>
+    m.credentialTypes.length === 0 ||
+    m.credentialTypes.every((ct) => ct.authType === "none") ||
+    m.credentialTypes.some((ct) => ct.authType === m.authType),
+  { message: "manifest.authType must match at least one declared credentialType" },
+);
+```
+
+**The two new field names `credentials-oscar` ships on `IntegrationManifest`:** `credentialTypes` (plural, array). That's it. `authType` already exists and stays (deprecated, not removed).
+
+### 4.4 New: `IntegrationModule.testCredential`
+
+Integrations that want a test step that isn't a regular operation (e.g., they want to skip rate-limit accounting or use a dedicated `/me` endpoint) can implement `testCredential` directly on the module.
+
+```typescript
+// packages/core/src/types.ts
+
+export interface CredentialTestResult {
+  ok: boolean;
+  /** Wall-clock duration of the test call. */
+  latencyMs: number;
+  /**
+   * Optional identity echo — "you authenticated as workspace foo, user @bar".
+   * Displayed by the CLI so the user can sanity-check the token.
+   */
+  identity?: {
+    userId?: string;
+    userName?: string;
+    workspaceName?: string;
+    scopes?: string[];
+  };
+  /** Human-readable failure message. Only present when ok === false. */
+  error?: string;
+  /**
+   * Machine-readable failure code. Uses the same vocabulary as IntegrationError.
+   * Examples: "AUTH_INVALID", "AUTH_EXPIRED", "SCOPE_INSUFFICIENT", "NETWORK_ERROR".
+   */
+  errorCode?: string;
+}
+
+export interface IntegrationModule {
+  manifest: IntegrationManifest;
+  operations: Record<string, OperationHandler>;
+
+  /**
+   * Validate that a stored credential still works. Called by
+   * `chorus credentials test <id>` and by the CLI after `chorus credentials add`
+   * when the credential type has a `test:` declaration.
+   *
+   * The runtime decrypts the credential and hands it through ctx.credentials
+   * exactly as it does for operations. Implementations should NOT mutate state
+   * on the target service — pick a GET/introspection endpoint.
+   */
+  testCredential?: (
+    credentialTypeName: string,
+    ctx: OperationContext,
+  ) => Promise<CredentialTestResult>;
+}
+```
+
+**Resolution precedence** (spelled out so `credentials-oscar` doesn't have to reverse-engineer it):
+1. If the credential type has `test.viaOperation`, the runtime invokes that operation with empty or minimal input.
+2. Else if `IntegrationModule.testCredential` exists, the runtime calls it.
+3. Else the CLI prints "no test available for this credential type; credential saved unchecked" and exits 0.
+
+### 4.5 New: OAuth flow metadata — plumbing into the refresher
+
+`CredentialOAuth2FlowSchema` already declared in §4.2. Here is the refresher contract change.
+
+Today `OAuthRefresher` takes a caller-supplied `refresh: RefreshFn`. After this upgrade, the refresher gains a **default** implementation that consults the integration's `oauth` metadata and does a standard RFC 6749 §6 refresh-token grant. Callers can still override with a bespoke `refresh` for integrations whose refresh deviates (e.g., Shopify's session-token renewal).
+
+```typescript
+// packages/runtime/src/oauth.ts — additions, not replacements
+
+export interface OAuthRefreshContext {
+  /** Decrypted payload (parsed JSON). Shape: { accessToken, refreshToken, ... }. */
+  credentials: Record<string, unknown>;
+  /** Resolved CredentialTypeDefinition for this credential row. */
+  type: CredentialTypeDefinition;
+  /** AbortSignal wired to the cron tick. */
+  signal: AbortSignal;
+}
+
+/**
+ * Generic OAuth 2.0 refresh-token grant. Works for any provider that follows
+ * RFC 6749 §6 ("grant_type=refresh_token"). The runtime picks this when an
+ * integration has not supplied a custom refresh function.
+ */
+export async function defaultOAuth2Refresh(
+  cred: CredentialRow,
+  type: CredentialTypeDefinition,
+  decryptedPayload: Record<string, unknown>,
+): Promise<RefreshedToken> {
+  // reads type.oauth.tokenUrl + type.oauth.clientAuthStyle, posts grant_type=refresh_token,
+  // returns { newPayload: JSON.stringify({...existing, accessToken, refreshToken?, ...}),
+  //           accessTokenExpiresAt: ISO }
+  // ... implementation in credentials-oscar's Wave 2 work
+}
+```
+
+**What `credentials-oscar` must wire:**
+
+1. `OAuthRefresher.tick()` (line 100 of `oauth.ts`) currently calls `this.opts.refresh(cred)`. Change to: look up the credential's `credential_type_name` column (new, see §5) → find the `CredentialTypeDefinition` in the loaded integration's manifest → if it has `oauth` metadata, call `defaultOAuth2Refresh` unless a custom `refresh` was supplied.
+2. No change needed to `OAuthRefresherOptions.refresh` signature — it stays as an override point.
+
+### 4.6 Reuse: Credential storage stays the same
+
+The AES-256-GCM encryption envelope does not change. `encryptCredential` / `decryptCredential` / `rotateKey` in `packages\runtime\src\credentials.ts` need zero modification.
+
+**What does change:** the plaintext JSON inside the encrypted blob now has a well-known shape driven by `CredentialTypeDefinition.fields`. Today `slack-send` might store `"xoxb-foo..."` (raw string) OR `{"token": "xoxb-foo..."}` (object) — `extractBearerToken` has a 3-way fallback to cope. After §4.1 every field gets a canonical name; a Slack bot-token credential stores:
+
+```json
+{
+  "accessToken": "xoxb-...",
+  "refreshToken": "xoxe-...",
+  "tokenExpiresAt": "2026-04-15T20:00:00Z",
+  "teamId": "T0123",
+  "botUserId": "U0123"
+}
+```
+
+…because `slackOAuth2Bot.fields` declares `accessToken`, `refreshToken`, `tokenExpiresAt`, `teamId`, `botUserId` as its five fields (some `oauthManaged`, some read-only echo-back from token response). Integration handlers can simplify from a fallback cascade to `ctx.credentials.accessToken`.
+
+**New DB column — renaming for clarity:**
+
+| Current column | After upgrade | Reason |
+|---|---|---|
+| `type` (DB) | `type` (kept) | Alias for `authType`, legacy. |
+| *(new)* | `credential_type_name` | FK-in-name-only to `IntegrationManifest.credentialTypes[].name`. Defaults to `<integration>:default` for pre-upgrade rows. |
+
+And in `CredentialSchema` (the TS type):
+
+```typescript
+export const CredentialSchema = z.object({
+  id: z.string(),
+  integration: z.string(),
+
+  /** NEW: which CredentialTypeDefinition in the integration this row is an instance of. */
+  credentialTypeName: z.string(),
+
+  /** Retained for back-compat and as a fast filter ("refresher only looks at oauth2"). */
+  authType: z.enum(["none", "apiKey", "oauth2", "basic", "bearer"]),
+
+  name: z.string(),
+  encryptedPayload: z.string(),
+  oauth2: z.object({
+    accessTokenExpiresAt: z.string().optional(),
+    refreshTokenExpiresAt: z.string().optional(),
+    scopes: z.array(z.string()).default([]),
+  }).optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+```
+
+Field rename: `type` → `authType` in the TS schema (NOT in the DB — the DB column stays `type` to avoid migration churn; the `fromRow` helper maps one to the other). This clears up the overload where `type` could mean either "auth envelope" or "credential type definition." `credentials-oscar`: update the 3 existing uses of `.type` in `packages/cli/src/commands/credentials.ts` to `.authType` and add the new `.credentialTypeName` field.
+
+---
+
