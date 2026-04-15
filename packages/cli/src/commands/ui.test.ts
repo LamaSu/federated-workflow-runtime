@@ -27,7 +27,7 @@ describe("chorus ui", () => {
     expect(code).toBe(0);
     const text = (out as unknown as BufferStream).text();
     expect(text.length).toBeGreaterThan(1000);
-    expect(text.length).toBeLessThan(5000);
+    expect(text.length).toBeLessThan(3500);
     // Prompt must mention manifest + single-file + no-CDN contract — these
     // are the load-bearing constraints that agents drop otherwise.
     expect(text).toContain("/api/manifest");
@@ -83,7 +83,7 @@ describe("chorus ui", () => {
 
   it("FALLBACK_PROMPT is non-empty and in the 1k..3k char window", () => {
     expect(FALLBACK_PROMPT.length).toBeGreaterThan(1000);
-    expect(FALLBACK_PROMPT.length).toBeLessThan(5000);
+    expect(FALLBACK_PROMPT.length).toBeLessThan(3500);
     expect(FALLBACK_PROMPT).toContain("/api/manifest");
     expect(FALLBACK_PROMPT).toContain("{{STYLE}}");
   });

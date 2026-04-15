@@ -11,94 +11,73 @@ on Windows).
 
 --- PROMPT START ---
 
-You are generating a single-file HTML dashboard for Chorus, a local workflow
-runtime. Chorus runs on the user's own machine, catches integration failures,
-and coordinates signed patches across users. You are building a READ-ONLY
-viewer on top of its JSON API.
+You are generating a single-file HTML dashboard for Chorus, a local,
+read-only workflow runtime. Chorus runs on the user's machine, catches
+integration failures, and coordinates signed patches across users.
 
 STEP 1 — DISCOVER THE API
 
-Fetch `http://localhost:3710/api/manifest` first. The response lists every
-endpoint, their query parameters, and the exact JSON shape each returns. Do
-not assume any endpoint — always verify against the manifest. If bearer auth
-is required, the manifest's `authMode` field will say `"bearer"`; include
-`Authorization: Bearer <token>` on every request in that case. The token is
-whatever was set in `CHORUS_API_TOKEN` when the runtime started.
+Fetch `http://localhost:3710/api/manifest` FIRST. It lists every endpoint,
+query params, and JSON shape. Do not assume any endpoint — verify against
+the manifest. If `authMode` is `"bearer"`, include `Authorization: Bearer
+<token>` (token = the value of `CHORUS_API_TOKEN` when the runtime started).
 
-STEP 2 — ASK THE USER WHAT THEY WANT
+STEP 2 — ASK THE USER
 
-Before generating anything, ask ONE short question: "What do you want to see
-at a glance? Runs, errors, patches, integrations, or all four?" Default to
-all four if the user says "whatever" or "you decide."
+Ask ONE question: "What do you want to see — runs, errors, patches,
+integrations, or all four?" If they say "whatever" or "you decide", default
+to all four.
 
-STEP 3 — GENERATE ONE HTML FILE
+STEP 3 — OUTPUT ONE HTML FILE
 
-Output a single `dashboard.html` file. NO build step, NO npm, NO external
-CDN (not even Tailwind's CDN, not even Google Fonts). Must work offline.
-Inline CSS and JS. Vanilla `fetch` + DOM manipulation. No frameworks. Under
-500 lines. Should open in a browser via `file://` or be served by any static
-server.
+Return exactly one `<!doctype html>` file in a single code block. No prose
+before or after. Under 500 lines. Inline CSS + inline JS + vanilla `fetch`.
+No frameworks. No build step. No external CDN (not even fonts or Tailwind).
+Must work offline and over `file://`.
 
-DATA TO SHOW
+ENDPOINTS (use whichever the user wants)
 
-Use whichever of these endpoints the user asked for:
+- `GET /api/runs?limit=50` — id, workflowId, status, startedAt, durationMs, error, attempt
+- `GET /api/runs/:id` — one run plus `nodeResults[]` (per-step output/error/duration)
+- `GET /api/errors?limit=50` — hash, integration, operation, errorClass, httpStatus, occurrences, lastSeen, sampleContext
+- `GET /api/patches?limit=50` — id, integration, version, state, appliedAt
+- `GET /api/integrations` — name, runCount, errorCount, patchCount, lastUsedAt
+- `GET /api/workflows` — id, name, version, active, updatedAt
 
-- `GET /api/runs?limit=50` — recent runs (id, workflowId, status, duration, error)
-- `GET /api/errors?limit=50` — error signatures (fingerprint hash, occurrences, integration, operation)
-- `GET /api/patches?limit=50` — known patches (integration, version, state, applied time)
-- `GET /api/integrations` — installed integrations (run count, error count, patch count, last used)
-- `GET /api/workflows` — all workflows (name, active, version, updated)
+UX RULES (NOT NEGOTIABLE)
 
-For a selected run's detail, use `GET /api/runs/:id` (returns `nodeResults[]`
-with per-step output/error/duration).
+- Timestamps: render as "5m ago" / "2h ago" / "Apr 14"; put the raw ISO
+  string in `title=` for hover.
+- Status colors: success=green, failed=red, running=amber, pending=gray,
+  cancelled=strikethrough gray. Stay consistent across tables.
+- IDs and signature hashes: monospace; truncate to 12 chars + `…`; full
+  value in `title=`.
+- Error strings: truncate at 140 chars; click to expand.
+- Every table needs an empty-state message (never a blank panel).
+- On first load, show "Loading…"; on refresh, swap in place (don't blank
+  the UI).
+- If a fetch fails, show a top banner "Lost connection to Chorus runtime —
+  is it running?" with a retry button.
 
-UX HINTS (NOT NEGOTIABLE)
+REFRESH
 
-- Timestamps: show as "5 min ago" / "2 hours ago" / "Apr 14" — never raw ISO8601.
-  Include the ISO as a `title=` tooltip so power users can hover.
-- Status colors: success = green, failed = red, running = amber/pulsing,
-  pending = muted gray, cancelled = strikethrough gray. Use these colors
-  consistently everywhere status appears.
-- Signature hashes + run ids: monospace, truncate to 12 chars with ellipsis,
-  full hash in `title=`.
-- Error messages: truncate to 140 chars with ellipsis + expand-on-click.
-- Empty states: every table needs a friendly empty message, never a blank
-  panel.
-- Loading states: show a lightweight spinner or "Loading..." the first time;
-  after that, silently swap data on refresh (don't blank the UI).
-- Errors: if a fetch fails, show a small banner at the top with "Lost
-  connection to Chorus runtime — is it running?" and a retry button.
-
-REFRESH STRATEGY
-
-Auto-refresh every 15 seconds by default. Add a visible pause/resume button
-and a "Last updated: 8s ago" indicator. When the tab is hidden
-(`document.hidden`), pause polling to save cycles; resume on focus.
+Auto-poll every 15s. Show "Last updated: 8s ago" and a pause/resume
+button. Pause when `document.hidden`; resume on focus.
 
 FORBIDDEN
 
-- External CDNs (works offline, preserves privacy).
-- Tracking/analytics scripts (Google Analytics, Plausible, etc.).
-- API keys in URLs (always use the `Authorization` header).
-- Anything that writes back to the server — this API is read-only.
-- Relative URLs that assume a specific mount path. Always use absolute
-  `http://localhost:3710/api/...` unless the user is serving the HTML from
-  the same origin.
-- "Loading spinners" that block the whole viewport. Per-section loading only.
+- External CDNs, analytics, trackers, or remote fonts.
+- API keys in URL strings (use the `Authorization` header only).
+- Write endpoints: this API is read-only. No POST/PATCH/DELETE.
+- Full-viewport loading spinners (use per-section states).
 
 STYLE
 
-Render the whole thing in this aesthetic: {{STYLE}}
+Render in this aesthetic: {{STYLE}}
 
-If that placeholder is empty or the user said "default," use a clean,
-information-dense design: system font stack, monospace for ids/hashes, subtle
-cool-gray background, high-contrast foreground, no rounded-corner chrome,
-no shadows. Think "inspector panel," not "marketing site."
-
-OUTPUT FORMAT
-
-Return exactly one code block containing the full HTML file, nothing else.
-No explanation before or after. The user will save that file and open it.
+If `{{STYLE}}` is empty, use a clean inspector-panel look: system font,
+monospace for ids, cool-gray background, high-contrast text, no rounded
+corners, no shadows.
 
 --- PROMPT END ---
 
