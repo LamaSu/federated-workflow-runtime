@@ -20,8 +20,10 @@ import {
   AuthError,
   IntegrationError,
   RateLimitError,
+  type CredentialTestResult,
   type IntegrationManifest,
   type IntegrationModule,
+  type OperationContext,
   type OperationHandler,
 } from "@chorus/core";
 import { z } from "zod";
@@ -58,6 +60,40 @@ export const manifest: IntegrationManifest = {
   authType: "bearer",
   baseUrl: "https://slack.com/api",
   docsUrl: "https://api.slack.com/methods/chat.postMessage",
+  /**
+   * Credential catalog (docs/CREDENTIALS_ANALYSIS.md §4.3). slack-send
+   * ships one bearer-token credential type. When a future iteration adds
+   * full OAuth 2.0 app support, a second entry — `slackOAuth2Bot` with
+   * `authType: "oauth2"` and the slack.com/oauth/v2/authorize endpoint —
+   * lands here alongside this one.
+   */
+  credentialTypes: [
+    {
+      name: "slackUserToken",
+      displayName: "Slack Bot User Token",
+      authType: "bearer",
+      description:
+        "A Slack Bot User OAuth Token (xoxb-*). Issued once you create a Slack app and install it to a workspace.",
+      documentationUrl: "https://api.slack.com/authentication/oauth-v2",
+      fields: [
+        {
+          name: "accessToken",
+          displayName: "Bot User OAuth Token",
+          type: "password",
+          required: true,
+          description:
+            "Starts with xoxb-. Create a Slack app at https://api.slack.com/apps, add the scopes you need (at minimum chat:write), install it to your workspace, and copy the 'Bot User OAuth Token' from the OAuth & Permissions page.",
+          deepLink: "https://api.slack.com/apps",
+          pattern: "^xoxb-",
+          oauthManaged: false,
+        },
+      ],
+      test: {
+        description:
+          "Calls GET https://slack.com/api/auth.test — read-only, no messages sent.",
+      },
+    },
+  ],
   operations: [
     {
       name: "postMessage",
@@ -307,6 +343,109 @@ export const postMessage: OperationHandler<PostMessageInput, PostMessageOutput> 
   return { ts, channel };
 };
 
+// ── testCredential (docs/CREDENTIALS_ANALYSIS.md §4.4) ─────────────────────
+
+/**
+ * Validate a Slack bot token by calling `auth.test` — read-only, idempotent,
+ * cheap. Returns identity echo on success so the CLI / MCP can surface
+ * "authenticated as @bot in Workspace X" to the user.
+ *
+ * The runtime decrypts the credential and hands it via `ctx.credentials`
+ * (same path the postMessage handler uses), so a passing test is strong
+ * evidence the real operation will also authenticate.
+ */
+export async function testCredential(
+  _credentialTypeName: string,
+  ctx: OperationContext,
+): Promise<CredentialTestResult> {
+  const startedAt = Date.now();
+  const token = extractBearerToken(ctx.credentials);
+  if (!token) {
+    return {
+      ok: false,
+      latencyMs: Date.now() - startedAt,
+      error: "slack-send.testCredential: no bearer token in ctx.credentials",
+      errorCode: "AUTH_INVALID",
+    };
+  }
+  try {
+    const res = await fetch("https://slack.com/api/auth.test", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      signal: ctx.signal,
+    });
+    const latencyMs = Date.now() - startedAt;
+    if (res.status === 401) {
+      return {
+        ok: false,
+        latencyMs,
+        error: "Slack 401 — token invalid or revoked",
+        errorCode: "AUTH_INVALID",
+      };
+    }
+    if (!res.ok) {
+      return {
+        ok: false,
+        latencyMs,
+        error: `Slack HTTP ${res.status}`,
+        errorCode: res.status >= 500 ? "NETWORK_ERROR" : "AUTH_INVALID",
+      };
+    }
+    type AuthTestBody = {
+      ok?: boolean;
+      error?: string;
+      user?: string;
+      user_id?: string;
+      team?: string;
+      team_id?: string;
+    };
+    let body: AuthTestBody;
+    try {
+      body = (await res.json()) as AuthTestBody;
+    } catch (err) {
+      return {
+        ok: false,
+        latencyMs,
+        error: `Slack auth.test: malformed response (${(err as Error).message})`,
+        errorCode: "NETWORK_ERROR",
+      };
+    }
+    if (!body.ok) {
+      const errCode =
+        body.error === "token_expired"
+          ? "AUTH_EXPIRED"
+          : body.error === "missing_scope"
+            ? "SCOPE_INSUFFICIENT"
+            : "AUTH_INVALID";
+      return {
+        ok: false,
+        latencyMs,
+        error: `Slack auth.test: ${body.error ?? "unknown_error"}`,
+        errorCode: errCode,
+      };
+    }
+    return {
+      ok: true,
+      latencyMs,
+      identity: {
+        userId: body.user_id,
+        userName: body.user,
+        workspaceName: body.team,
+      },
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      latencyMs: Date.now() - startedAt,
+      error: `network error: ${(err as Error).message}`,
+      errorCode: "NETWORK_ERROR",
+    };
+  }
+}
+
 // ── Module export ──────────────────────────────────────────────────────────
 
 const integration: IntegrationModule = {
@@ -314,6 +453,7 @@ const integration: IntegrationModule = {
   operations: {
     postMessage: postMessage as OperationHandler,
   },
+  testCredential,
 };
 
 export default integration;

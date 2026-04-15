@@ -62,6 +62,13 @@ export const manifest: IntegrationManifest = {
   version: "0.1.0",
   description: "Make any HTTP request. Credential-less, timeout-aware, records snapshots.",
   authType: "none",
+  /**
+   * Credential catalog (docs/CREDENTIALS_ANALYSIS.md §4.3): this
+   * integration is credential-less, so the catalog is empty. If a user
+   * needs to send an Authorization header they pass it through `headers`
+   * in the operation input — no credential type is declared.
+   */
+  credentialTypes: [],
   operations: [
     {
       name: "request",

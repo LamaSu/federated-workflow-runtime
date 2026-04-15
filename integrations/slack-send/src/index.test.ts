@@ -11,6 +11,7 @@ import integration, {
   isSlackRetryable,
   parseRetryAfter,
   postMessage,
+  testCredential,
 } from "./index.js";
 
 // ── Test scaffolding ────────────────────────────────────────────────────────
@@ -83,6 +84,113 @@ describe("@chorus-integrations/slack-send module shape", () => {
     expect(integration.manifest.authType).toBe("bearer");
     expect(integration.manifest.operations.map((o) => o.name)).toContain("postMessage");
     expect(typeof integration.operations.postMessage).toBe("function");
+  });
+
+  it("declares a bearer credentialType with a fields catalog", () => {
+    expect(integration.manifest.credentialTypes).toHaveLength(1);
+    const ct = integration.manifest.credentialTypes![0]!;
+    expect(ct.name).toBe("slackUserToken");
+    expect(ct.authType).toBe("bearer");
+    expect(ct.documentationUrl).toMatch(/^https:\/\//);
+    expect(ct.fields).toHaveLength(1);
+    expect(ct.fields![0]!.name).toBe("accessToken");
+    expect(ct.fields![0]!.type).toBe("password");
+    expect(ct.fields![0]!.deepLink).toBe("https://api.slack.com/apps");
+    expect(ct.fields![0]!.pattern).toBe("^xoxb-");
+  });
+
+  it("exposes testCredential callable on the IntegrationModule", () => {
+    expect(typeof integration.testCredential).toBe("function");
+  });
+});
+
+// ── testCredential (docs/CREDENTIALS_ANALYSIS.md §4.4) ──────────────────────
+
+describe("testCredential — Slack auth.test", () => {
+  it("returns ok:true with identity echo when auth.test succeeds", async () => {
+    installMockFetch((init) => {
+      const headers = new Headers(init?.headers);
+      expect(headers.get("authorization")).toBe("Bearer xoxb-test-token");
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          user: "chorus-bot",
+          user_id: "U01",
+          team: "LamaSu",
+          team_id: "T01",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+    const result = await testCredential("slackUserToken", makeContext());
+    expect(result.ok).toBe(true);
+    expect(result.identity?.userName).toBe("chorus-bot");
+    expect(result.identity?.workspaceName).toBe("LamaSu");
+    expect(typeof result.latencyMs).toBe("number");
+    expect(result.latencyMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("returns ok:false AUTH_INVALID when no bearer token in ctx", async () => {
+    const result = await testCredential(
+      "slackUserToken",
+      makeContext({ credentials: null }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.errorCode).toBe("AUTH_INVALID");
+  });
+
+  it("maps Slack 401 to AUTH_INVALID", async () => {
+    installMockFetch(() => new Response("unauthorized", { status: 401 }));
+    const result = await testCredential("slackUserToken", makeContext());
+    expect(result.ok).toBe(false);
+    expect(result.errorCode).toBe("AUTH_INVALID");
+    expect(result.error).toMatch(/401/);
+  });
+
+  it("maps ok:false token_expired to AUTH_EXPIRED", async () => {
+    installMockFetch(
+      () =>
+        new Response(
+          JSON.stringify({ ok: false, error: "token_expired" }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+    const result = await testCredential("slackUserToken", makeContext());
+    expect(result.ok).toBe(false);
+    expect(result.errorCode).toBe("AUTH_EXPIRED");
+  });
+
+  it("maps ok:false missing_scope to SCOPE_INSUFFICIENT", async () => {
+    installMockFetch(
+      () =>
+        new Response(
+          JSON.stringify({ ok: false, error: "missing_scope" }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+    const result = await testCredential("slackUserToken", makeContext());
+    expect(result.ok).toBe(false);
+    expect(result.errorCode).toBe("SCOPE_INSUFFICIENT");
+  });
+
+  it("maps 5xx to NETWORK_ERROR", async () => {
+    installMockFetch(() => new Response("server error", { status: 503 }));
+    const result = await testCredential("slackUserToken", makeContext());
+    expect(result.ok).toBe(false);
+    expect(result.errorCode).toBe("NETWORK_ERROR");
+  });
+
+  it("handles fetch network failure gracefully", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("ECONNREFUSED");
+      }),
+    );
+    const result = await testCredential("slackUserToken", makeContext());
+    expect(result.ok).toBe(false);
+    expect(result.errorCode).toBe("NETWORK_ERROR");
+    expect(result.error).toMatch(/ECONNREFUSED/);
   });
 });
 
