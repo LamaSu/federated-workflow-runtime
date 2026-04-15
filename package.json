@@ -18,7 +18,12 @@
     "dev": "npm run dev --workspace=packages/runtime",
     "cli": "npm run cli --workspace=packages/cli --",
     "lint": "tsc --noEmit -p tsconfig.base.json",
-    "clean": "rm -rf packages/*/dist integrations/*/dist"
+    "clean": "rm -rf packages/*/dist integrations/*/dist",
+    "version:bump": "node scripts/bump-version.js",
+    "version:sync": "node scripts/bump-version.js --check",
+    "check:publish-ready": "bash scripts/check-publish-ready.sh",
+    "publish:dry-run": "npm publish --workspaces --dry-run --access public",
+    "publish:all": "npm publish --workspaces --access public --provenance"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

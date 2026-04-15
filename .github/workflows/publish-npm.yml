@@ -1,0 +1,155 @@
+name: publish-npm
+
+# Publishes all @chorus/* and @chorus-integrations/* packages to npmjs.com.
+#
+# Uses npm provenance via GitHub OIDC (no static NODE_AUTH_TOKEN required).
+# The npm registry must be pre-configured as a "Trusted Publisher" for each
+# scoped package on npmjs.com — see docs/NPM_PUBLISH.md §1 for the one-time
+# setup.
+#
+# Triggers:
+#   - Push of a release tag `release/vX.Y.Z` (automatic).
+#   - Manual workflow_dispatch with a `version` input (override / rescue).
+#
+# Guarantees before publish:
+#   1. Clean checkout on Node 20.
+#   2. npm ci (lockfile-exact install).
+#   3. All workspaces build.
+#   4. All workspaces test (395+ existing tests must pass).
+#   5. scripts/check-publish-ready.sh passes (publishConfig + bin + version sync).
+#   6. Version consistency across all package.json files.
+#
+# On failure at any gate, publish is skipped. No half-published releases.
+#
+# References:
+#   - docs/NPM_PUBLISH.md (per-release runbook + rollback playbook)
+#   - docs/ROADMAP.md §5 (the trigger that motivated this workflow)
+#   - federation/github-actions/sign-patch.yml (sibling OIDC pattern)
+
+on:
+  push:
+    tags:
+      - 'release/v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Explicit version to publish (must match package.json)'
+        required: true
+        type: string
+      dry_run:
+        description: 'Dry-run only (no publish)'
+        required: false
+        type: boolean
+        default: false
+
+# OIDC provenance requires id-token: write.
+# contents: read is enough since we do not push back to the repo.
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: Build, test, and publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # Used by some test suites that check network reachability.
+      NODE_ENV: test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+          # No `always-auth: true` because we use OIDC, not NODE_AUTH_TOKEN.
+
+      - name: Derive publish version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            ver="${{ github.event.inputs.version }}"
+            ver="${ver#v}"
+            ver="${ver#release/v}"
+          else
+            # release/vX.Y.Z -> X.Y.Z
+            tag="${GITHUB_REF_NAME}"
+            ver="${tag#release/v}"
+          fi
+          if [[ -z "${ver}" ]]; then
+            echo "::error::could not derive version"
+            exit 1
+          fi
+          if ! [[ "${ver}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::version '${ver}' is not valid semver (X.Y.Z or X.Y.Z-prerelease)"
+            exit 1
+          fi
+          echo "version=${ver}" >> "$GITHUB_OUTPUT"
+          echo "Publishing version ${ver}"
+
+      - name: Install dependencies (lockfile-exact)
+        run: npm ci
+
+      - name: Check publish-readiness
+        run: bash scripts/check-publish-ready.sh
+
+      - name: Assert root package.json version matches tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="${{ steps.version.outputs.version }}"
+          actual="$(node -e "process.stdout.write(require('./package.json').version)")"
+          if [[ "${expected}" != "${actual}" ]]; then
+            echo "::error::root package.json version '${actual}' != release version '${expected}'"
+            echo "Bump with: node scripts/bump-version.js ${expected}"
+            exit 1
+          fi
+
+      - name: Assert all workspace versions match root
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/bump-version.js --check
+
+      - name: Build all workspaces
+        run: npm run build
+
+      - name: Test all workspaces
+        run: npm test
+
+      - name: Dry-run publish (all workspaces)
+        if: ${{ github.event.inputs.dry_run == 'true' }}
+        run: npm publish --workspaces --access public --dry-run
+
+      - name: Publish to npm (workspaces, provenance)
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        run: npm publish --workspaces --access public --provenance
+        env:
+          # npm picks up the OIDC token automatically via the runner when
+          # `permissions: id-token: write` is set AND the package has an
+          # npmjs.com Trusted Publisher configured for this repo+workflow.
+          NPM_CONFIG_PROVENANCE: 'true'
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          echo "### Chorus npm publish — v${{ steps.version.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Trigger: \`${{ github.event_name }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Dry-run: \`${{ github.event.inputs.dry_run || 'false' }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Workflow: \`${{ github.workflow }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Ref: \`${{ github.ref }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Job: \`${{ job.status }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Verify on npm:" >> "$GITHUB_STEP_SUMMARY"
+          echo "- https://www.npmjs.com/package/@chorus/cli" >> "$GITHUB_STEP_SUMMARY"
+          echo "- https://www.npmjs.com/package/@chorus/runtime" >> "$GITHUB_STEP_SUMMARY"
+          echo "- https://www.npmjs.com/package/@chorus/core" >> "$GITHUB_STEP_SUMMARY"
