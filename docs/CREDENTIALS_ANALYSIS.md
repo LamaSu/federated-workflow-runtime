@@ -540,3 +540,165 @@ Field rename: `type` → `authType` in the TS schema (NOT in the DB — the DB c
 
 ---
 
+## 5. Migration plan (existing credentials)
+
+Chorus v0 users (~nobody beyond the dogfooders, since npm package publication is roadmap item #2 and hasn't happened) still have rows in their SQLite where `credential_type_name` is absent. We make the migration painless.
+
+### 5.1 SQLite migration (ALTER TABLE)
+
+`credentials-oscar` adds a one-shot migration in `packages\runtime\src\db.ts` bumping the schema version:
+
+```sql
+ALTER TABLE credentials
+  ADD COLUMN credential_type_name TEXT NOT NULL DEFAULT '';
+
+-- Backfill: rows with blank credential_type_name belong to the synthesized
+-- "legacy" credential type. Integrations that adopt credentialTypes[] will
+-- auto-match against the first entry whose authType matches.
+UPDATE credentials
+   SET credential_type_name = integration || ':legacy'
+ WHERE credential_type_name = '';
+
+-- Index for fast lookup when the refresher resolves which OAuth flow to run.
+CREATE INDEX IF NOT EXISTS idx_credentials_type_name
+  ON credentials(integration, credential_type_name);
+```
+
+No blob rewrite. Plaintext shape doesn't change — integrations that adopted credential types will just see the same blob they already wrote, and integrations that haven't adopted keep seeing the free-form blob their handlers already cope with.
+
+### 5.2 Runtime resolution algorithm
+
+When the runtime loads a credential row for injection into `ctx.credentials`:
+
+1. Look up the integration manifest. If no `credentialTypes[]`, treat the row as-is (legacy path).
+2. Else find the entry where `name === row.credential_type_name`. If found → use its field list to normalize the decrypted blob.
+3. Else (legacy row with empty type name) → find the first entry where `authType === row.authType`, treat it as the canonical type. Log once at INFO: `"legacy credential mapped to <typeName>; upgrade with 'chorus credentials migrate <id>'"`.
+
+### 5.3 Manual migration CLI
+
+```
+chorus credentials migrate <id> --to <credentialTypeName>
+```
+
+Reassigns the row's `credential_type_name`. Optional; safe to never run — the auto-resolution at step 3 above is good enough for v1.x.
+
+### 5.4 Integration-side compatibility
+
+Integrations that haven't been updated to declare `credentialTypes[]` keep working unchanged. `IntegrationManifestSchema.credentialTypes` defaults to `[]`, and the refiner in §4.3 permits empty. The only hard break would be adding a `CredentialTypeDefinition` whose `name` is already saved in an existing row with a *conflicting* `authType` — unlikely, and caught by the refiner.
+
+---
+
+## 6. CLI changes for `credentials-oscar` to implement
+
+All commands land in `packages\cli\src\commands\credentials.ts`. Keep the existing three (`add`, `list`, `remove`) working with their old signatures; add new flags and subcommands additively.
+
+### 6.1 `chorus credentials add <integration> [--type <typeName>] [--interactive]`
+
+New behavior:
+- Load the integration module → read `manifest.credentialTypes`.
+- If zero types: fallback to legacy `--secret | --payload | --interactive` path (existing code).
+- If one type: use it.
+- If 2+: require `--type <typeName>` unless `--interactive`, in which case prompt to pick from a list.
+- With a selected type, iterate `type.fields`:
+  - Skip `oauthManaged: true` fields (the OAuth flow will fill them in).
+  - Skip fields with `type === "boolean"` and a default that isn't required.
+  - For every other field:
+    - Type `password` → masked prompt (existing `promptSecret`).
+    - Type `url` / `string` / `number` / `select` → echoed prompt.
+    - Validate against `pattern`, `minLength`, `maxLength`, `options`.
+  - Collect into a `Record<string, string | number | boolean>`; JSON-encode; encrypt; store with `credential_type_name = type.name`.
+- If `type.authType === "oauth2"`: after collecting `clientId` / `clientSecret` (the user-supplied half), kick off the OAuth authorize flow — open browser to `oauth.authorizeUrl`, spin up a localhost listener on `oauth.redirectPath`, exchange the code at `oauth.tokenUrl`, merge `accessToken` + `refreshToken` + `tokenExpiresAt` into the payload before encryption.
+- If `type.test` exists or `IntegrationModule.testCredential` exists → run it, print PASS/FAIL with `identity` echoed. On FAIL: prompt "keep anyway? y/N", default N.
+
+### 6.2 `chorus credentials test <id-or-integration:name>`
+
+New subcommand. Resolves the row, decrypts, runs the test per §4.4's resolution precedence, prints:
+
+```
+✓ slack-send:default (slackOAuth2Bot) — 142ms
+  authenticated as: LamaSu workspace, @chorus-bot
+  scopes: chat:write,channels:read
+```
+
+or:
+
+```
+✗ github:personal (githubPAT) — 89ms
+  error: AUTH_EXPIRED — token expired 2026-04-03
+  hint: rotate token at https://github.com/settings/tokens
+```
+
+Exit code 0 on pass, 1 on fail. CI can wire `chorus credentials test --all` into health checks.
+
+### 6.3 `chorus credentials pat-help <integration> [--type <typeName>]`
+
+Opens the credential-type's `documentationUrl` (or the first field's `deepLink` if no type-level URL) in the default browser. Solves the "where do I get this PAT?" 3 AM confusion.
+
+Windows: `start ""`. macOS: `open`. Linux: `xdg-open`. Same pattern Chorus already uses for `chorus ui --serve`.
+
+### 6.4 `chorus credentials types [--integration <name>]`
+
+New subcommand. Lists all declared credential types across loaded integrations. Used by users and by `mcp-papa` for discovery. JSON mode for agents.
+
+```
+$ chorus credentials types
+slack-send
+  slackOAuth2Bot     (oauth2)   Bot token via OAuth 2.0 [default]
+  slackUserToken     (bearer)   Legacy user token
+github
+  githubPAT          (apiKey)   Personal access token
+  githubOAuth        (oauth2)   OAuth 2.0 app flow
+```
+
+### 6.5 `chorus credentials migrate <id> --to <typeName>`
+
+Per §5.3. Low-priority; defer until users hit the case.
+
+### 6.6 What does NOT change
+
+- `chorus credentials list` — unchanged output, unchanged flags. Just learns about the new column (shows `credentialTypeName` in `--json` mode).
+- `chorus credentials remove` — unchanged.
+
+---
+
+## 7. `mcp-papa` interface contract
+
+`mcp-papa` (Wave 2 sibling) exposes Chorus integrations as MCP tools. The credential catalog gives it everything it needs — and exactly enough structure that tool descriptions can be generated without handwritten templates.
+
+### 7.1 What `mcp-papa` reads from the credential catalog
+
+From each loaded `IntegrationManifest`:
+
+| Data | Used for |
+|---|---|
+| `credentialTypes[].name` | Tool names: `<integration>__configure_<typeName>` |
+| `credentialTypes[].displayName` + `description` | Human-readable tool description |
+| `credentialTypes[].authType === "oauth2"` | Whether to expose an `<integration>__authenticate` tool that returns an authorize URL the user pastes into a browser |
+| `credentialTypes[].fields` (minus `oauthManaged`) | Input JSON-schema of the `__configure_` tool — `fields[].name`, `fields[].type` map directly to JSON-schema `type` / `format: "password"` |
+| `credentialTypes[].documentationUrl` | Tool description footer: "Docs: <url>" |
+| `credentialTypes[].fields[].deepLink` | Inline in description: "Get this value at <deepLink>" |
+| `CredentialTestResult` shape | Schema of the `<integration>__test_auth` tool's return |
+
+### 7.2 Tools `mcp-papa` exposes per integration
+
+For every integration with at least one `credentialType`:
+
+1. **`<integration>__list_credentials`** — read-only, returns `[{id, name, credentialTypeName, authType, state}]`. No secrets.
+2. **`<integration>__configure_<typeName>`** — set up a new credential. Input schema = JSON-schema of the type's `fields[]` minus `oauthManaged`. Server-side flow invokes the same logic as `chorus credentials add`.
+3. **`<integration>__authenticate`** (OAuth types only) — starts the OAuth flow, returns `{authorizeUrl: string}`. User opens it, consents, Chorus runtime receives the callback, credential is saved. MCP tool returns `{ok: true, credentialId}` when the callback fires (polling-based; MCP server holds the tool call open until callback or timeout).
+4. **`<integration>__test_auth`** — runs `testCredential()` for a given credential id. Input: `{credentialId: string}`. Output: `CredentialTestResult` as-is.
+
+### 7.3 Explicit non-contract
+
+`mcp-papa` does **not**:
+- Call `encryptCredential` / `decryptCredential` directly — it goes through the runtime's credential accessor (which handles the encryption boundary).
+- Ever return or log the encrypted blob or plaintext payload. Only `identity` echoes from `CredentialTestResult` are user-visible.
+- Invoke any operation that mutates external state during `__test_auth`. If the integration's `test.viaOperation` points to a non-idempotent operation, `mcp-papa` refuses with a descriptive error ("integration wired a mutating op for credential test; fix the manifest").
+
+### 7.4 Two-line summary of the contract
+
+> `mcp-papa` needs `IntegrationManifest.credentialTypes: CredentialTypeDefinition[]` — that's it. Every tool name, input schema, description, deep-link, and test endpoint is derived mechanically from that array plus `IntegrationModule.testCredential`.
+
+---
+
+
