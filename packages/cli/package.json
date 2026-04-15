@@ -7,11 +7,39 @@
   "bin": {
     "chorus": "./dist/cli.js"
   },
-  "files": ["dist"],
+  "files": ["dist", "README.md"],
+  "keywords": [
+    "chorus",
+    "workflow",
+    "cli",
+    "automation",
+    "npx",
+    "scaffold",
+    "runtime",
+    "agent",
+    "n8n-alternative"
+  ],
+  "author": "Chorus contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LamaSu/federated-workflow-runtime.git",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/LamaSu/federated-workflow-runtime/issues"
+  },
+  "homepage": "https://github.com/LamaSu/federated-workflow-runtime#readme",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "provenance": true
+  },
   "scripts": {
     "build": "tsup src/cli.ts --format esm --dts --clean",
     "test": "vitest run",
-    "cli": "tsx src/cli.ts"
+    "cli": "tsx src/cli.ts",
+    "prepublishOnly": "npm run build && npm test"
   },
   "dependencies": {
     "@chorus/core": "*",

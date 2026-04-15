@@ -5,11 +5,44 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "files": ["dist", "src/sandbox-worker.cjs"],
+  "files": [
+    "dist",
+    "src/sandbox-worker.cjs",
+    "README.md"
+  ],
+  "keywords": [
+    "chorus",
+    "workflow",
+    "runtime",
+    "automation",
+    "cron",
+    "webhooks",
+    "sqlite",
+    "fastify",
+    "agent",
+    "n8n-alternative"
+  ],
+  "author": "Chorus contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LamaSu/federated-workflow-runtime.git",
+    "directory": "packages/runtime"
+  },
+  "bugs": {
+    "url": "https://github.com/LamaSu/federated-workflow-runtime/issues"
+  },
+  "homepage": "https://github.com/LamaSu/federated-workflow-runtime#readme",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "provenance": true
+  },
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --clean && node -e \"require('fs').copyFileSync('src/sandbox-worker.cjs', 'dist/sandbox-worker.cjs')\"",
     "test": "vitest run",
-    "dev": "tsx watch src/server.ts"
+    "dev": "tsx watch src/server.ts",
+    "prepublishOnly": "npm run build && npm test"
   },
   "dependencies": {
     "@chorus/core": "*",

@@ -5,10 +5,36 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "files": ["dist"],
+  "files": ["dist", "README.md"],
+  "keywords": [
+    "chorus",
+    "chorus-integration",
+    "workflow",
+    "slack",
+    "messaging",
+    "integration",
+    "n8n-alternative"
+  ],
+  "author": "Chorus contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LamaSu/federated-workflow-runtime.git",
+    "directory": "integrations/slack-send"
+  },
+  "bugs": {
+    "url": "https://github.com/LamaSu/federated-workflow-runtime/issues"
+  },
+  "homepage": "https://github.com/LamaSu/federated-workflow-runtime#readme",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "provenance": true
+  },
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --clean",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "npm run build && npm test"
   },
   "dependencies": {
     "@chorus/core": "*",
