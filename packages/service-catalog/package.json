@@ -1,0 +1,45 @@
+{
+  "name": "@delightfulchorus/service-catalog",
+  "version": "0.1.2",
+  "description": "Typed service catalog for Chorus — JSON declarations for 40+ services (auth, endpoints, operations) consumed by universal-http.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "chorus",
+    "chorus-catalog",
+    "workflow",
+    "integrations",
+    "service-catalog",
+    "n8n-alternative"
+  ],
+  "author": "Chorus contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LamaSu/federated-workflow-runtime.git",
+    "directory": "packages/service-catalog"
+  },
+  "bugs": {
+    "url": "https://github.com/LamaSu/federated-workflow-runtime/issues"
+  },
+  "homepage": "https://github.com/LamaSu/federated-workflow-runtime#readme",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsup src/index.ts src/loader.ts src/schemas.ts --format esm --dts --clean",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "dependencies": {
+    "@delightfulchorus/core": "*",
+    "zod": "^3.23.0"
+  }
+}

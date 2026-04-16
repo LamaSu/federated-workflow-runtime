@@ -1,0 +1,132 @@
+{
+  "serviceId": "github",
+  "displayName": "GitHub",
+  "docsUrl": "https://docs.github.com/en/rest",
+  "baseUrl": "https://api.github.com",
+  "authTypes": [
+    {
+      "id": "githubPAT",
+      "displayName": "GitHub Personal Access Token",
+      "authType": "bearer",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Personal Access Token",
+          "type": "password",
+          "required": true,
+          "description": "A GitHub PAT (fine-grained or classic). Classic tokens start with ghp_; fine-grained with github_pat_. Must have repo scope for repo operations.",
+          "deepLink": "https://github.com/settings/tokens/new",
+          "pattern": "^(ghp_|github_pat_)",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "documentationUrl": "https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens",
+      "deepLink": "https://github.com/settings/tokens/new",
+      "test": { "method": "GET", "path": "/user" }
+    },
+    {
+      "id": "githubOAuth",
+      "displayName": "GitHub OAuth 2.0 App",
+      "authType": "oauth2",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "OAuth Access Token",
+          "type": "password",
+          "required": true,
+          "description": "Populated by the OAuth 2.0 flow.",
+          "oauthManaged": true
+        },
+        {
+          "name": "refreshToken",
+          "displayName": "Refresh Token",
+          "type": "password",
+          "required": false,
+          "description": "Refresh token (only issued for GitHub Apps, not OAuth Apps).",
+          "oauthManaged": true
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "oauth": {
+        "authorizeUrl": "https://github.com/login/oauth/authorize",
+        "tokenUrl": "https://github.com/login/oauth/access_token",
+        "scopes": ["repo", "read:user"],
+        "pkce": true,
+        "clientAuthStyle": "body",
+        "redirectPath": "/oauth/callback",
+        "authorizeQueryParams": {}
+      },
+      "documentationUrl": "https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app",
+      "test": { "method": "GET", "path": "/user" }
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "get-authenticated-user",
+      "displayName": "Get Authenticated User",
+      "method": "GET",
+      "path": "/user",
+      "description": "Retrieve the profile of the user authenticating the request.",
+      "outputSchema": {
+        "type": "object",
+        "properties": { "login": { "type": "string" }, "id": { "type": "number" } }
+      }
+    },
+    {
+      "id": "list-repos",
+      "displayName": "List Repositories for Authenticated User",
+      "method": "GET",
+      "path": "/user/repos",
+      "description": "List repositories that the authenticated user has explicit permission to access."
+    },
+    {
+      "id": "create-issue",
+      "displayName": "Create Issue",
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/issues",
+      "description": "Open a new issue on a repository.",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "required": ["title"],
+        "properties": {
+          "title": { "type": "string" },
+          "body": { "type": "string" },
+          "labels": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    {
+      "id": "list-issues",
+      "displayName": "List Issues",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/issues",
+      "description": "List issues in a repository (also returns PRs)."
+    },
+    {
+      "id": "create-pull-request",
+      "displayName": "Create Pull Request",
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/pulls",
+      "description": "Open a pull request from `head` against `base`.",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "required": ["title", "head", "base"],
+        "properties": {
+          "title": { "type": "string" },
+          "head": { "type": "string" },
+          "base": { "type": "string" },
+          "body": { "type": "string" }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,76 @@
+{
+  "serviceId": "anthropic",
+  "displayName": "Anthropic",
+  "docsUrl": "https://docs.anthropic.com/en/api/getting-started",
+  "baseUrl": "https://api.anthropic.com",
+  "authTypes": [
+    {
+      "id": "anthropicAPIKey",
+      "displayName": "Anthropic API Key",
+      "authType": "apiKey",
+      "fields": [
+        {
+          "name": "apiKey",
+          "displayName": "API Key",
+          "type": "password",
+          "required": true,
+          "description": "An Anthropic API key (sk-ant-*). Sent via the x-api-key header.",
+          "deepLink": "https://console.anthropic.com/settings/keys",
+          "pattern": "^sk-ant-",
+          "oauthManaged": false
+        },
+        {
+          "name": "anthropicVersion",
+          "displayName": "anthropic-version header",
+          "type": "string",
+          "required": false,
+          "description": "API version. Defaults to 2023-06-01 — the latest stable.",
+          "default": "2023-06-01",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "x-api-key",
+        "format": "{apiKey}"
+      },
+      "documentationUrl": "https://docs.anthropic.com/en/api/getting-started",
+      "deepLink": "https://console.anthropic.com/settings/keys"
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "create-message",
+      "displayName": "Create Message",
+      "method": "POST",
+      "path": "/v1/messages",
+      "description": "Create a Claude chat completion.",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "required": ["model", "messages", "max_tokens"],
+        "properties": {
+          "model": { "type": "string" },
+          "messages": { "type": "array" },
+          "max_tokens": { "type": "number" },
+          "system": { "type": "string" },
+          "temperature": { "type": "number" }
+        }
+      }
+    },
+    {
+      "id": "count-tokens",
+      "displayName": "Count Tokens",
+      "method": "POST",
+      "path": "/v1/messages/count_tokens",
+      "description": "Count the tokens in a message payload without running inference.",
+      "bodyContentType": "application/json"
+    },
+    {
+      "id": "list-models",
+      "displayName": "List Models",
+      "method": "GET",
+      "path": "/v1/models",
+      "description": "List the Claude models available to your account."
+    }
+  ]
+}

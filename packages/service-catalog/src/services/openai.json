@@ -1,0 +1,101 @@
+{
+  "serviceId": "openai",
+  "displayName": "OpenAI",
+  "docsUrl": "https://platform.openai.com/docs/api-reference",
+  "baseUrl": "https://api.openai.com",
+  "authTypes": [
+    {
+      "id": "openaiAPIKey",
+      "displayName": "OpenAI API Key",
+      "authType": "bearer",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "API Key",
+          "type": "password",
+          "required": true,
+          "description": "An OpenAI secret key (sk-*). Create at https://platform.openai.com/api-keys.",
+          "deepLink": "https://platform.openai.com/api-keys",
+          "pattern": "^sk-",
+          "oauthManaged": false
+        },
+        {
+          "name": "organization",
+          "displayName": "Organization ID",
+          "type": "string",
+          "required": false,
+          "description": "Optional OpenAI-Organization header (for multi-org accounts).",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "documentationUrl": "https://platform.openai.com/docs/api-reference/authentication",
+      "deepLink": "https://platform.openai.com/api-keys",
+      "test": { "method": "GET", "path": "/v1/models" }
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "chat-completion",
+      "displayName": "Chat Completion",
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "description": "Generate a chat completion from a list of messages.",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "required": ["model", "messages"],
+        "properties": {
+          "model": { "type": "string" },
+          "messages": { "type": "array" },
+          "temperature": { "type": "number" },
+          "max_tokens": { "type": "number" }
+        }
+      }
+    },
+    {
+      "id": "embeddings",
+      "displayName": "Create Embeddings",
+      "method": "POST",
+      "path": "/v1/embeddings",
+      "description": "Generate embedding vectors for input text.",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "required": ["model", "input"],
+        "properties": {
+          "model": { "type": "string" },
+          "input": { "type": ["string", "array"] }
+        }
+      }
+    },
+    {
+      "id": "list-models",
+      "displayName": "List Models",
+      "method": "GET",
+      "path": "/v1/models",
+      "description": "List the models available to your account."
+    },
+    {
+      "id": "image-generation",
+      "displayName": "Generate Image",
+      "method": "POST",
+      "path": "/v1/images/generations",
+      "description": "Generate an image via the images API (DALL-E / gpt-image-1).",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "required": ["prompt"],
+        "properties": {
+          "model": { "type": "string" },
+          "prompt": { "type": "string" },
+          "n": { "type": "number" },
+          "size": { "type": "string" }
+        }
+      }
+    }
+  ]
+}

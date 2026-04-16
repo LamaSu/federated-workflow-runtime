@@ -1,0 +1,128 @@
+{
+  "serviceId": "notion",
+  "displayName": "Notion",
+  "docsUrl": "https://developers.notion.com/reference",
+  "baseUrl": "https://api.notion.com",
+  "authTypes": [
+    {
+      "id": "notionIntegrationToken",
+      "displayName": "Notion Internal Integration Token",
+      "authType": "bearer",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Integration Token",
+          "type": "password",
+          "required": true,
+          "description": "Create an internal integration at https://www.notion.so/my-integrations. Token starts with 'secret_' (legacy) or 'ntn_'. Share the target pages/databases with the integration before calling.",
+          "deepLink": "https://www.notion.so/my-integrations",
+          "pattern": "^(secret_|ntn_)",
+          "oauthManaged": false
+        },
+        {
+          "name": "notionVersion",
+          "displayName": "Notion-Version header",
+          "type": "string",
+          "required": false,
+          "description": "API version to pin. Defaults to 2022-06-28 — the latest stable.",
+          "default": "2022-06-28",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "documentationUrl": "https://developers.notion.com/docs/authorization",
+      "deepLink": "https://www.notion.so/my-integrations",
+      "test": { "method": "GET", "path": "/v1/users/me" }
+    },
+    {
+      "id": "notionOAuth",
+      "displayName": "Notion Public Integration (OAuth 2.0)",
+      "authType": "oauth2",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "OAuth Access Token",
+          "type": "password",
+          "required": true,
+          "oauthManaged": true
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "oauth": {
+        "authorizeUrl": "https://api.notion.com/v1/oauth/authorize",
+        "tokenUrl": "https://api.notion.com/v1/oauth/token",
+        "scopes": [],
+        "pkce": false,
+        "clientAuthStyle": "header",
+        "redirectPath": "/oauth/callback",
+        "authorizeQueryParams": { "owner": "user", "response_type": "code" }
+      },
+      "documentationUrl": "https://developers.notion.com/docs/authorization#authorizing-public-integrations",
+      "test": { "method": "GET", "path": "/v1/users/me" }
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "get-me",
+      "displayName": "Get Bot User",
+      "method": "GET",
+      "path": "/v1/users/me",
+      "description": "Retrieve the bot User associated with the API token."
+    },
+    {
+      "id": "query-database",
+      "displayName": "Query Database",
+      "method": "POST",
+      "path": "/v1/databases/{database_id}/query",
+      "description": "Query a database, returning pages matching the filter/sort.",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "filter": { "type": "object" },
+          "sorts": { "type": "array" },
+          "start_cursor": { "type": "string" },
+          "page_size": { "type": "number" }
+        }
+      }
+    },
+    {
+      "id": "create-page",
+      "displayName": "Create Page",
+      "method": "POST",
+      "path": "/v1/pages",
+      "description": "Create a new page in a database or as a child of an existing page.",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "required": ["parent", "properties"],
+        "properties": {
+          "parent": { "type": "object" },
+          "properties": { "type": "object" },
+          "children": { "type": "array" }
+        }
+      }
+    },
+    {
+      "id": "retrieve-page",
+      "displayName": "Retrieve Page",
+      "method": "GET",
+      "path": "/v1/pages/{page_id}",
+      "description": "Retrieve a Page object by ID."
+    },
+    {
+      "id": "search",
+      "displayName": "Search",
+      "method": "POST",
+      "path": "/v1/search",
+      "description": "Search for pages and databases the integration has access to.",
+      "bodyContentType": "application/json"
+    }
+  ]
+}
