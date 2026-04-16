@@ -73,7 +73,7 @@ afterEach(() => {
 
 // ── Module shape ────────────────────────────────────────────────────────────
 
-describe("@chorus-integrations/http-generic module shape", () => {
+describe("@chorus/integration-http-generic module shape", () => {
   it("exports a valid IntegrationModule", () => {
     expect(integration.manifest.name).toBe("http-generic");
     expect(integration.manifest.authType).toBe("none");

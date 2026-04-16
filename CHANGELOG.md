@@ -130,7 +130,7 @@ with durable replay, and npm publication scaffolding.
   (5-min revoke), maintainer rotation, cost model (free at 10k users on
   Cloudflare R2)
 
-#### Reference integrations (`@chorus-integrations/*`)
+#### Reference integrations (`@chorus/integration-*`)
 
 - `http-generic` — credential-less HTTP client with timeout + cassette
   recording; 16 tests
@@ -194,7 +194,7 @@ with durable replay, and npm publication scaffolding.
 ### Known limitations & deferred work
 
 - First publish must be **manual** (`npm publish --access public --provenance`
-  for each `@chorus/*` and `@chorus-integrations/*` package). npm Trusted
+  for each `@chorus/*` package). npm Trusted
   Publisher binding requires the package name to exist before configuration.
   Once `0.1.0` is on the registry, all subsequent versions ship via CI.
 - Fine-grained canary percentages (1/2/5/10/20/50) are coarse-binned to

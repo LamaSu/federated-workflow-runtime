@@ -43,7 +43,7 @@ describe("generateMcpServer", () => {
     expect(pkg.name).toBe("chorus-mcp-slack-send");
     expect(pkg.type).toBe("module");
     expect(pkg.dependencies["@chorus/mcp"]).toBeDefined();
-    expect(pkg.dependencies["@chorus-integrations/slack-send"]).toBeDefined();
+    expect(pkg.dependencies["@chorus/integration-slack-send"]).toBeDefined();
     expect(pkg.scripts.start).toBe("node index.js");
   });
 
@@ -53,7 +53,7 @@ describe("generateMcpServer", () => {
     const idx = await readFile(path.join(outDir, "index.js"), "utf8");
     expect(idx).toContain('import { serveIntegration } from "@chorus/mcp/serve"');
     expect(idx).toContain(
-      'import integration from "@chorus-integrations/slack-send"',
+      'import integration from "@chorus/integration-slack-send"',
     );
     // Scaffold now passes a credentialService (optional) alongside.
     expect(idx).toContain("serveIntegration({ integration, credentialService })");
@@ -139,7 +139,7 @@ describe("generateMcpServer", () => {
       await readFile(path.join(outDir, "package.json"), "utf8"),
     ) as { dependencies: Record<string, string> };
     expect(pkg.dependencies["@my-org/chorus-custom"]).toBeDefined();
-    expect(pkg.dependencies["@chorus-integrations/custom-integration"]).toBeUndefined();
+    expect(pkg.dependencies["@chorus/integration-custom-integration"]).toBeUndefined();
     const idx = await readFile(path.join(outDir, "index.js"), "utf8");
     expect(idx).toContain('import integration from "@my-org/chorus-custom"');
   });

@@ -8,7 +8,7 @@
  *
  * Scaffold layout:
  *   mcp-servers/chorus-<integration>/
- *     package.json       — @chorus/mcp + @chorus-integrations/<name>
+ *     package.json       — @chorus/mcp + @chorus/integration-<name>
  *     index.js           — entrypoint: import both, call serveIntegration
  *     README.md          — how to wire into MCP clients
  *
@@ -33,7 +33,7 @@ export interface GenerateMcpServerOptions {
   scaffoldVersion?: string;
   /**
    * How to identify the integration package. Default:
-   *   `@chorus-integrations/<integration>`
+   *   `@chorus/integration-<integration>`
    * Override when the caller ships a custom-named integration.
    */
   integrationPackage?: string;
@@ -75,7 +75,7 @@ export async function generateMcpServer(
     path.join(process.cwd(), "mcp-servers", `chorus-${integration}`);
   const scaffoldVersion = opts.scaffoldVersion ?? "0.1.0";
   const integrationPackage =
-    opts.integrationPackage ?? `@chorus-integrations/${integration}`;
+    opts.integrationPackage ?? `@chorus/integration-${integration}`;
   const description =
     opts.description ??
     `MCP server exposing the ${integration} Chorus integration. ` +

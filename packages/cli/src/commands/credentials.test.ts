@@ -17,7 +17,7 @@ import {
  * docs/CREDENTIALS_ANALYSIS.md). We spin up isolated temp directories,
  * write a minimal chorus config, pre-create a credentials table, and
  * inject a fake IntegrationModule loader to avoid relying on real
- * @chorus-integrations/* packages.
+ * @chorus/integration-* packages.
  */
 
 // ── Test helpers ────────────────────────────────────────────────────────────

@@ -78,7 +78,7 @@ afterEach(() => {
 
 // ── Module shape ────────────────────────────────────────────────────────────
 
-describe("@chorus-integrations/slack-send module shape", () => {
+describe("@chorus/integration-slack-send module shape", () => {
   it("exports a valid IntegrationModule", () => {
     expect(integration.manifest.name).toBe("slack-send");
     expect(integration.manifest.authType).toBe("bearer");

@@ -286,7 +286,7 @@ Low. Unlike every other item, rushed npm publication is almost never a problem. 
 
 **Two gotchas:**
 - `pnpm workspace:*` protocol: must resolve to concrete versions in the tarball. `pnpm publish` does this automatically, but verify. No `workspace:*` in published `dependencies`.
-- Integrations in `integrations/`, not `packages/`. Decide: bundled inside `@chorus/cli`, or their own namespace? **Recommendation: `@chorus-integrations/*`** so community integrations follow the same publish pattern.
+- Integrations in `integrations/`, not `packages/`. Decide: bundled inside `@chorus/cli`, or their own namespace? **Decision: single `@chorus` scope with `@chorus/integration-<name>` prefix** — keeps publication inside one org and eliminates the need for a second scope. Community integrations follow the same naming.
 
 ### References
 

@@ -1,5 +1,5 @@
 /**
- * @chorus-integrations/http-generic
+ * @chorus/integration-http-generic
  *
  * The world's simplest integration: make any HTTP request. Serves two
  * purposes in the Chorus ecosystem:

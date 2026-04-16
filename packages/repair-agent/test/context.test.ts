@@ -44,7 +44,7 @@ describe("assembleRepairContext", () => {
     await writeFile(
       join(integrationDir, "package.json"),
       JSON.stringify({
-        name: "@chorus-integrations/slack-send",
+        name: "@chorus/integration-slack-send",
         version: "1.4.2",
         description: "Slack integration",
       }),
@@ -95,7 +95,7 @@ describe("assembleRepairContext", () => {
     });
 
     expect(ctx.error.integration).toBe("slack-send");
-    expect(ctx.manifest?.name).toBe("@chorus-integrations/slack-send");
+    expect(ctx.manifest?.name).toBe("@chorus/integration-slack-send");
     expect(ctx.manifest?.version).toBe("1.4.2");
     expect(ctx.integrationDir).toBe(integrationDir);
     const paths = ctx.sourceFiles.map((f) => f.relPath).sort();

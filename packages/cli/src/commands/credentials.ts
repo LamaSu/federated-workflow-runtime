@@ -14,7 +14,7 @@
  * The catalog-aware subcommands (`test`, `types`, `migrate`, `pat-help`)
  * accept an optional `integrationLoader` so callers can inject a
  * pre-wired integration resolver; the default loader dynamic-imports
- * `@chorus-integrations/<name>`.
+ * `@chorus/integration-<name>`.
  */
 import { randomBytes, createCipheriv, createDecipheriv } from "node:crypto";
 import { randomUUID } from "node:crypto";
@@ -366,14 +366,14 @@ async function promptSecret(prompt: string): Promise<string> {
 /**
  * Integration loader signature — matches `@chorus/runtime`'s
  * `IntegrationLoader`. Kept isomorphic so both can use the same
- * `@chorus-integrations/<name>` convention or an injected resolver.
+ * `@chorus/integration-<name>` convention or an injected resolver.
  */
 export type IntegrationLoader = (
   integration: string,
 ) => Promise<IntegrationModule>;
 
 /**
- * Default loader: dynamic-imports `@chorus-integrations/<name>`. Returns
+ * Default loader: dynamic-imports `@chorus/integration-<name>`. Returns
  * the default export (the IntegrationModule). Throws a descriptive
  * error when the package isn't installed.
  */
@@ -385,20 +385,20 @@ export async function defaultIntegrationLoader(
   ) => Promise<unknown>;
   try {
     const mod = (await dynamicImport(
-      `@chorus-integrations/${name}`,
+      `@chorus/integration-${name}`,
     )) as { default?: IntegrationModule } | IntegrationModule;
     const m =
       (mod as { default?: IntegrationModule }).default ??
       (mod as IntegrationModule);
     if (!m?.manifest) {
       throw new Error(
-        `@chorus-integrations/${name} does not export a valid IntegrationModule`,
+        `@chorus/integration-${name} does not export a valid IntegrationModule`,
       );
     }
     return m;
   } catch (err) {
     throw new Error(
-      `cannot load @chorus-integrations/${name}: ${(err as Error).message}`,
+      `cannot load @chorus/integration-${name}: ${(err as Error).message}`,
     );
   }
 }
@@ -409,7 +409,7 @@ export interface CredentialsTestOptions {
   cwd?: string;
   /** Reference: `<integration>:<name>` (e.g. `slack-send:default`). */
   ref: string;
-  /** Override integration loader; defaults to @chorus-integrations/<name>. */
+  /** Override integration loader; defaults to @chorus/integration-<name>. */
   integrationLoader?: IntegrationLoader;
   /** Override fetch — used by tests. */
   fetchFn?: typeof fetch;

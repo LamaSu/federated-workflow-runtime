@@ -20,7 +20,7 @@
  *     `chorus mcp config slack-send | jq`.
  *
  * All subcommands share the `resolveIntegration()` loader, which walks
- * the @chorus-integrations/* workspace dependency set to find the user's
+ * the @chorus/integration-* workspace dependency set to find the user's
  * installed integration.
  */
 import path from "node:path";
@@ -94,7 +94,7 @@ export async function mcpList(opts: McpListOptions = {}): Promise<number> {
   if (integrations.length === 0) {
     out.write(
       paint("No integrations installed.", "dim", color_on) +
-        `\n  Install one with: npm i @chorus-integrations/slack-send\n`,
+        `\n  Install one with: npm i @chorus/integration-slack-send\n`,
     );
     return 0;
   }
@@ -229,15 +229,18 @@ export async function mcpConfig(opts: McpConfigOptions): Promise<number> {
 interface InstalledIntegration {
   /** Short name: "slack-send", "http-generic". Used in tool names. */
   name: string;
-  /** Full npm package name: "@chorus-integrations/slack-send". */
+  /** Full npm package name: "@chorus/integration-slack-send". */
   packageName: string;
 }
 
+const INTEGRATION_PREFIX = "integration-";
+
 /**
- * Find installed Chorus integrations by walking `node_modules/@chorus-integrations/`.
+ * Find installed Chorus integrations by walking `node_modules/@chorus/` and
+ * filtering for packages whose short name starts with `integration-`.
  * This mirrors the pattern the runtime uses at cold-start — keep in sync.
  * Monorepo roots are preferred (walks up until it finds a node_modules with
- * @chorus-integrations inside).
+ * @chorus inside).
  */
 async function discoverIntegrations(
   cwd: string,
@@ -248,6 +251,7 @@ async function discoverIntegrations(
   const result: InstalledIntegration[] = [];
   for (const entry of entries) {
     if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+    if (!entry.name.startsWith(INTEGRATION_PREFIX)) continue;
     // Each entry's package.json gives the full name.
     const pkgPath = path.join(root, entry.name, "package.json");
     try {
@@ -255,7 +259,7 @@ async function discoverIntegrations(
         name?: string;
       };
       if (typeof pkg.name !== "string") continue;
-      const short = entry.name;
+      const short = entry.name.slice(INTEGRATION_PREFIX.length);
       result.push({ name: short, packageName: pkg.name });
     } catch {
       // Entry isn't a package; skip.
@@ -268,7 +272,7 @@ async function discoverIntegrations(
 async function findIntegrationsRoot(cwd: string): Promise<string | null> {
   let current = path.resolve(cwd);
   for (let i = 0; i < 8; i++) {
-    const candidate = path.join(current, "node_modules", "@chorus-integrations");
+    const candidate = path.join(current, "node_modules", "@chorus");
     try {
       const s = await stat(candidate);
       if (s.isDirectory()) return candidate;
@@ -284,14 +288,14 @@ async function findIntegrationsRoot(cwd: string): Promise<string | null> {
 
 /**
  * Load an installed integration's IntegrationModule. Tries, in order:
- *   1. `@chorus-integrations/<name>` — the canonical shape
+ *   1. `@chorus/integration-<name>` — the canonical shape
  *   2. `chorus-integration-<name>` — community convention
  *
  * Resolution strategy: walk up from `cwd` to find a `node_modules/<spec>/`
  * with a readable package.json. This works for workspace installs
  * (where the integration is a sibling workspace not declared in the root
  * package.json's deps), for deep installs, AND for the canonical
- * "user's project npm i @chorus-integrations/*" case. `createRequire`
+ * "user's project npm i @chorus/integration-*" case. `createRequire`
  * would fail the first case because npm workspaces don't hoist sibling
  * packages into the parent's dependency graph.
  */
@@ -300,7 +304,7 @@ async function loadIntegration(
   name: string,
 ): Promise<IntegrationModule> {
   const candidates = [
-    `@chorus-integrations/${name}`,
+    `@chorus/integration-${name}`,
     `chorus-integration-${name}`,
   ];
   let lastErr: unknown;

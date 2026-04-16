@@ -1,5 +1,5 @@
 /**
- * @chorus-integrations/slack-send
+ * @chorus/integration-slack-send
  *
  * Reference integration: send a message to Slack via chat.postMessage.
  * Tracks the worked example in ARCHITECTURE.md §8.2.

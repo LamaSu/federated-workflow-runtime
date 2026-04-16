@@ -1,5 +1,5 @@
 {
-  "name": "@chorus-integrations/slack-send",
+  "name": "@chorus/integration-slack-send",
   "version": "0.1.0",
   "description": "Slack send-message integration — reference example for the integration SDK",
   "type": "module",

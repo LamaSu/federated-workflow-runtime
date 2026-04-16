@@ -4,7 +4,7 @@
 
 ## Who this is for
 
-Anyone releasing a new version of `@chorus/*` or `@chorus-integrations/*` to npmjs.com. That's two audiences:
+Anyone releasing a new version of `@chorus/*` (including the `@chorus/integration-*` packages) to npmjs.com. That's two audiences:
 
 1. **Release managers** — you bump the version, tag, and let CI publish.
 2. **Anyone debugging a broken publish** — you need to know the manual fallback.
@@ -17,7 +17,7 @@ Most days, you only read §3. §1 is one-time setup. §2, §4, §5, §6 are for 
 
 ### 1.1 Claim the npm scopes
 
-`@chorus` and `@chorus-integrations` are two separate npm orgs (scopes). Both must be claimed on npmjs.com before any publish.
+`@chorus` is a single npm org (scope) covering all 9 packages. Integrations live under `@chorus/integration-<name>` to stay inside the one scope. The org must be claimed on npmjs.com before any publish.
 
 ```bash
 # Log in to npm with the account that will own the orgs.
@@ -45,9 +45,7 @@ For each published package: go to `https://www.npmjs.com/package/<name>/access`,
 
 Packages to configure (nine total):
 
-| Scope `chorus` | Scope `chorus-integrations` |
-|---|---|
-| `@chorus/core`, `@chorus/runtime`, `@chorus/registry`, `@chorus/reporter`, `@chorus/repair-agent`, `@chorus/cli`, `@chorus/mcp` | `@chorus-integrations/http-generic`, `@chorus-integrations/slack-send` |
+All under the single `chorus` scope: `@chorus/core`, `@chorus/runtime`, `@chorus/registry`, `@chorus/reporter`, `@chorus/repair-agent`, `@chorus/cli`, `@chorus/mcp`, `@chorus/integration-http-generic`, `@chorus/integration-slack-send`.
 
 **Chicken-and-egg.** Trusted Publisher requires the name to exist on npm first. For the `0.1.0` release, manually publish once with a personal token, then bind Trusted Publisher. Every later release is CI-driven.
 

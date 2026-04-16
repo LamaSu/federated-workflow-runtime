@@ -152,14 +152,14 @@ agent and signed into a registry patch that helps workflow users too.
 
 ### `chorus mcp list [--json]`
 
-Lists installed integrations (packages under `node_modules/@chorus-integrations/`)
+Lists installed integrations (packages under `node_modules/@chorus/integration-`)
 and their MCP tool count. `--json` emits a machine-readable array.
 
 ### `chorus mcp generate <integration> [--out <dir>]`
 
 Writes a scaffold to `mcp-servers/chorus-<integration>/`:
 
-- `package.json` — declares `@chorus/mcp` + `@chorus-integrations/<name>` as deps
+- `package.json` — declares `@chorus/mcp` + `@chorus/integration-<name>` as deps
 - `index.js` — ESM entrypoint, calls `serveIntegration({ integration })`
 - `README.md` — Claude Desktop / Cursor / Zed registration instructions
 
@@ -244,7 +244,7 @@ import {
 } from "@chorus/mcp";
 
 // Example: inspect tool shape
-import integration from "@chorus-integrations/slack-send";
+import integration from "@chorus/integration-slack-send";
 const tools = manifestToMcpTools(integration.manifest);
 console.log(tools.map((t) => t.name));
 // [
