@@ -19,7 +19,7 @@ export interface EnqueueOptions {
   workflowVersion?: number;
   priority?: number;
   triggerPayload?: unknown;
-  triggeredBy?: "webhook" | "cron" | "manual";
+  triggeredBy?: "webhook" | "cron" | "manual" | "event";
   /** Defer visibility until this ISO time. Useful for scheduled/sleep runs. */
   nextWakeup?: string;
   /** Override the default "started_at" timestamp. */

@@ -75,7 +75,24 @@ More integrations are added as community patches via the registry.
 
 ## Status
 
-Early. See `docs/ARCHITECTURE.md` for the full design.
+Early. See `docs/ARCHITECTURE.md` for the full design and `docs/ROADMAP.md` for what's coming.
+
+## Install
+
+```bash
+npx @chorus/cli init
+```
+
+This scaffolds a `./chorus/` directory in the current folder, generates an Ed25519 keypair + AES encryption key, and creates an example workflow. Then `npx @chorus/cli run` starts the runtime.
+
+> Note: the npm packages publish at `v0.1.0`. Until then, clone this repo and run `npm install && npm run build && node packages/cli/dist/cli.js init`. See [QUICKSTART.md](QUICKSTART.md) for the local-dev flow.
+
+For team installs and pinned versions:
+
+```bash
+npm install --save-dev @chorus/cli
+npx chorus init
+```
 
 ## Running the federation side
 
@@ -83,7 +100,18 @@ The client-side packages in `packages/*` are half the story. Operators who want 
 
 ## Quickstart
 
-See `QUICKSTART.md`.
+See [QUICKSTART.md](QUICKSTART.md).
+
+## Documentation
+
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) — system design, data model, trust boundaries
+- [ROADMAP.md](docs/ROADMAP.md) — what's coming, with triggers and concrete steps
+- [CREDENTIALS_ANALYSIS.md](docs/CREDENTIALS_ANALYSIS.md) — typed credential catalog (n8n-inspired)
+- [MCP_GUIDE.md](docs/MCP_GUIDE.md) — auto-MCP per integration for any agent
+- [EVENT_TRIGGERS.md](docs/EVENT_TRIGGERS.md) — event triggers + `step.waitForEvent`
+- [UI_GENERATOR.md](docs/UI_GENERATOR.md) — agent-generated dashboards
+- [federation/RUNBOOK.md](federation/RUNBOOK.md) — operator standup for hosting a registry
+- [CHANGELOG.md](CHANGELOG.md) — release notes
 
 ## License
 

@@ -81,7 +81,7 @@ export const RunSchema = z.object({
   id: z.string(),
   workflowId: z.string(),
   status: z.enum(["pending", "running", "success", "failed", "cancelled"]),
-  triggeredBy: z.enum(["cron", "webhook", "manual"]),
+  triggeredBy: z.enum(["cron", "webhook", "manual", "event"]),
   triggerPayload: z.unknown().optional(),
   nodeResults: z.array(NodeResultSchema).default([]),
   startedAt: z.string(),

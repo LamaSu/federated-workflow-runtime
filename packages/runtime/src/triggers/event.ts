@@ -189,7 +189,7 @@ export class EventDispatcher {
     });
     for (const entry of matches) {
       const runId = this.opts.queue.enqueue(entry.workflowId, {
-        triggeredBy: "manual", // "event" is not in the RunSchema enum yet; v1.1 extends it
+        triggeredBy: "event",
         triggerPayload: {
           event: {
             id: event.id,
