@@ -1,0 +1,105 @@
+{
+  "serviceId": "box",
+  "displayName": "Box",
+  "docsUrl": "https://developer.box.com/reference/",
+  "baseUrl": "https://api.box.com",
+  "authTypes": [
+    {
+      "id": "boxDeveloperToken",
+      "displayName": "Box Developer Token",
+      "authType": "bearer",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Developer Token",
+          "type": "password",
+          "required": true,
+          "description": "Short-lived 60-min token, useful for testing. Generate on your Box custom app's configuration page.",
+          "deepLink": "https://app.box.com/developers/console",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "documentationUrl": "https://developer.box.com/guides/authentication/tokens/developer-tokens/",
+      "deepLink": "https://app.box.com/developers/console",
+      "test": { "method": "GET", "path": "/2.0/users/me" }
+    },
+    {
+      "id": "boxOAuth",
+      "displayName": "Box OAuth 2.0",
+      "authType": "oauth2",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Access Token",
+          "type": "password",
+          "required": true,
+          "oauthManaged": true
+        },
+        {
+          "name": "refreshToken",
+          "displayName": "Refresh Token",
+          "type": "password",
+          "required": false,
+          "oauthManaged": true
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "oauth": {
+        "authorizeUrl": "https://account.box.com/api/oauth2/authorize",
+        "tokenUrl": "https://api.box.com/oauth2/token",
+        "scopes": ["root_readwrite"],
+        "pkce": false,
+        "clientAuthStyle": "body",
+        "redirectPath": "/oauth/callback",
+        "authorizeQueryParams": {}
+      },
+      "documentationUrl": "https://developer.box.com/guides/authentication/oauth2/"
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "get-me",
+      "displayName": "Get Current User",
+      "method": "GET",
+      "path": "/2.0/users/me",
+      "description": "Retrieve the authenticated user's profile."
+    },
+    {
+      "id": "list-folder-items",
+      "displayName": "List Folder Items",
+      "method": "GET",
+      "path": "/2.0/folders/{folder_id}/items",
+      "description": "List files and subfolders inside a folder. folder_id=0 is root."
+    },
+    {
+      "id": "get-folder",
+      "displayName": "Get Folder",
+      "method": "GET",
+      "path": "/2.0/folders/{folder_id}",
+      "description": "Get a folder's metadata."
+    },
+    {
+      "id": "create-folder",
+      "displayName": "Create Folder",
+      "method": "POST",
+      "path": "/2.0/folders",
+      "description": "Create a new folder.",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "required": ["name", "parent"],
+        "properties": {
+          "name": { "type": "string" },
+          "parent": { "type": "object" }
+        }
+      }
+    }
+  ]
+}

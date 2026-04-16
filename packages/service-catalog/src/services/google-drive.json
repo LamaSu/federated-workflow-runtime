@@ -1,0 +1,93 @@
+{
+  "serviceId": "google-drive",
+  "displayName": "Google Drive",
+  "docsUrl": "https://developers.google.com/drive/api/reference/rest/v3",
+  "baseUrl": "https://www.googleapis.com",
+  "authTypes": [
+    {
+      "id": "googleDriveOAuth",
+      "displayName": "Google OAuth 2.0",
+      "authType": "oauth2",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Access Token",
+          "type": "password",
+          "required": true,
+          "oauthManaged": true
+        },
+        {
+          "name": "refreshToken",
+          "displayName": "Refresh Token",
+          "type": "password",
+          "required": false,
+          "oauthManaged": true
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "oauth": {
+        "authorizeUrl": "https://accounts.google.com/o/oauth2/v2/auth",
+        "tokenUrl": "https://oauth2.googleapis.com/token",
+        "scopes": ["https://www.googleapis.com/auth/drive"],
+        "pkce": true,
+        "clientAuthStyle": "body",
+        "redirectPath": "/oauth/callback",
+        "authorizeQueryParams": {
+          "access_type": "offline",
+          "prompt": "consent"
+        }
+      },
+      "documentationUrl": "https://developers.google.com/drive/api/quickstart/js"
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "list-files",
+      "displayName": "List Files",
+      "method": "GET",
+      "path": "/drive/v3/files",
+      "description": "List files in My Drive / shared with me. Supports ?q= for search."
+    },
+    {
+      "id": "get-file",
+      "displayName": "Get File",
+      "method": "GET",
+      "path": "/drive/v3/files/{fileId}",
+      "description": "Retrieve metadata for a single file. Use alt=media to download content."
+    },
+    {
+      "id": "create-file-metadata",
+      "displayName": "Create File (metadata only)",
+      "method": "POST",
+      "path": "/drive/v3/files",
+      "description": "Create a new file or folder (folder uses mimeType='application/vnd.google-apps.folder').",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "mimeType": { "type": "string" },
+          "parents": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    {
+      "id": "update-file",
+      "displayName": "Update File Metadata",
+      "method": "PATCH",
+      "path": "/drive/v3/files/{fileId}",
+      "description": "Patch a file's metadata (rename, move, starring, etc.).",
+      "bodyContentType": "application/json"
+    },
+    {
+      "id": "delete-file",
+      "displayName": "Delete File",
+      "method": "DELETE",
+      "path": "/drive/v3/files/{fileId}",
+      "description": "Permanently delete a file (skip trash)."
+    }
+  ]
+}

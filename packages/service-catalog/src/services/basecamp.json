@@ -1,0 +1,82 @@
+{
+  "serviceId": "basecamp",
+  "displayName": "Basecamp 4",
+  "docsUrl": "https://github.com/basecamp/bc3-api",
+  "baseUrl": "https://3.basecampapi.com",
+  "authTypes": [
+    {
+      "id": "basecampOAuth",
+      "displayName": "Basecamp OAuth 2.0 (37signals Launchpad)",
+      "authType": "oauth2",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Access Token",
+          "type": "password",
+          "required": true,
+          "oauthManaged": true
+        },
+        {
+          "name": "refreshToken",
+          "displayName": "Refresh Token",
+          "type": "password",
+          "required": false,
+          "oauthManaged": true
+        },
+        {
+          "name": "accountId",
+          "displayName": "Basecamp Account ID",
+          "type": "string",
+          "required": true,
+          "description": "Your Basecamp account ID — shown in account URLs (numeric). Appears in the base URL path.",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "oauth": {
+        "authorizeUrl": "https://launchpad.37signals.com/authorization/new",
+        "tokenUrl": "https://launchpad.37signals.com/authorization/token",
+        "scopes": [],
+        "pkce": false,
+        "clientAuthStyle": "body",
+        "redirectPath": "/oauth/callback",
+        "authorizeQueryParams": { "type": "web_server" }
+      },
+      "documentationUrl": "https://github.com/basecamp/api/blob/master/sections/authentication.md"
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "get-authorization",
+      "displayName": "Get Authorization (identity)",
+      "method": "GET",
+      "path": "https://launchpad.37signals.com/authorization.json",
+      "description": "Introspect the token — lists Basecamp accounts the user has access to. Absolute URL (overrides baseUrl)."
+    },
+    {
+      "id": "list-projects",
+      "displayName": "List Projects",
+      "method": "GET",
+      "path": "/{accountId}/projects.json",
+      "description": "List Basecamp projects in the account."
+    },
+    {
+      "id": "get-project",
+      "displayName": "Get Project",
+      "method": "GET",
+      "path": "/{accountId}/projects/{project_id}.json",
+      "description": "Get details for a single project."
+    },
+    {
+      "id": "create-message",
+      "displayName": "Create Message Board Post",
+      "method": "POST",
+      "path": "/{accountId}/buckets/{project_id}/message_boards/{message_board_id}/messages.json",
+      "description": "Post a message to a project's message board.",
+      "bodyContentType": "application/json"
+    }
+  ]
+}

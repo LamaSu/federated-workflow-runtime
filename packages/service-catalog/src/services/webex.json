@@ -1,0 +1,105 @@
+{
+  "serviceId": "webex",
+  "displayName": "Webex",
+  "docsUrl": "https://developer.webex.com/docs/api/getting-started",
+  "baseUrl": "https://webexapis.com",
+  "authTypes": [
+    {
+      "id": "webexPersonalToken",
+      "displayName": "Webex Personal Access Token",
+      "authType": "bearer",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Personal Access Token",
+          "type": "password",
+          "required": true,
+          "description": "12-hour token from https://developer.webex.com/docs/getting-started. For production, use OAuth or a Bot Token.",
+          "deepLink": "https://developer.webex.com/docs/getting-started",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "documentationUrl": "https://developer.webex.com/docs/api/getting-started",
+      "deepLink": "https://developer.webex.com/docs/getting-started",
+      "test": { "method": "GET", "path": "/v1/people/me" }
+    },
+    {
+      "id": "webexOAuth",
+      "displayName": "Webex OAuth 2.0",
+      "authType": "oauth2",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Access Token",
+          "type": "password",
+          "required": true,
+          "oauthManaged": true
+        },
+        {
+          "name": "refreshToken",
+          "displayName": "Refresh Token",
+          "type": "password",
+          "required": false,
+          "oauthManaged": true
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "oauth": {
+        "authorizeUrl": "https://webexapis.com/v1/authorize",
+        "tokenUrl": "https://webexapis.com/v1/access_token",
+        "scopes": ["spark:all"],
+        "pkce": true,
+        "clientAuthStyle": "body",
+        "redirectPath": "/oauth/callback",
+        "authorizeQueryParams": {}
+      },
+      "documentationUrl": "https://developer.webex.com/docs/integrations"
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "get-me",
+      "displayName": "Get My Details",
+      "method": "GET",
+      "path": "/v1/people/me",
+      "description": "Retrieve the authenticated user."
+    },
+    {
+      "id": "list-rooms",
+      "displayName": "List Rooms",
+      "method": "GET",
+      "path": "/v1/rooms",
+      "description": "List rooms (conversations) visible to the user."
+    },
+    {
+      "id": "create-message",
+      "displayName": "Create Message",
+      "method": "POST",
+      "path": "/v1/messages",
+      "description": "Post a message to a room or direct user.",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "roomId": { "type": "string" },
+          "text": { "type": "string" },
+          "markdown": { "type": "string" }
+        }
+      }
+    },
+    {
+      "id": "list-meetings",
+      "displayName": "List Meetings",
+      "method": "GET",
+      "path": "/v1/meetings",
+      "description": "List scheduled meetings."
+    }
+  ]
+}

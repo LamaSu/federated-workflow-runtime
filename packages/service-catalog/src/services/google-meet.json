@@ -1,0 +1,73 @@
+{
+  "serviceId": "google-meet",
+  "displayName": "Google Meet",
+  "docsUrl": "https://developers.google.com/meet/api/reference/rest",
+  "baseUrl": "https://meet.googleapis.com",
+  "authTypes": [
+    {
+      "id": "googleMeetOAuth",
+      "displayName": "Google OAuth 2.0",
+      "authType": "oauth2",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Access Token",
+          "type": "password",
+          "required": true,
+          "oauthManaged": true
+        },
+        {
+          "name": "refreshToken",
+          "displayName": "Refresh Token",
+          "type": "password",
+          "required": false,
+          "oauthManaged": true
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "oauth": {
+        "authorizeUrl": "https://accounts.google.com/o/oauth2/v2/auth",
+        "tokenUrl": "https://oauth2.googleapis.com/token",
+        "scopes": [
+          "https://www.googleapis.com/auth/meetings.space.created",
+          "https://www.googleapis.com/auth/meetings.space.readonly"
+        ],
+        "pkce": true,
+        "clientAuthStyle": "body",
+        "redirectPath": "/oauth/callback",
+        "authorizeQueryParams": {
+          "access_type": "offline",
+          "prompt": "consent"
+        }
+      },
+      "documentationUrl": "https://developers.google.com/meet/api/guides/overview"
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "create-space",
+      "displayName": "Create Meet Space",
+      "method": "POST",
+      "path": "/v2/spaces",
+      "description": "Create a new Meet space (returns a meeting URL).",
+      "bodyContentType": "application/json"
+    },
+    {
+      "id": "get-space",
+      "displayName": "Get Meet Space",
+      "method": "GET",
+      "path": "/v2/spaces/{name}",
+      "description": "Retrieve a space by resource name."
+    },
+    {
+      "id": "end-active-conference",
+      "displayName": "End Active Conference",
+      "method": "POST",
+      "path": "/v2/spaces/{name}:endActiveConference",
+      "description": "End the current active conference in a space."
+    }
+  ]
+}

@@ -1,0 +1,102 @@
+{
+  "serviceId": "asana",
+  "displayName": "Asana",
+  "docsUrl": "https://developers.asana.com/reference/",
+  "baseUrl": "https://app.asana.com",
+  "authTypes": [
+    {
+      "id": "asanaPAT",
+      "displayName": "Asana Personal Access Token",
+      "authType": "bearer",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Personal Access Token",
+          "type": "password",
+          "required": true,
+          "description": "Create at https://app.asana.com/0/developer-console.",
+          "deepLink": "https://app.asana.com/0/developer-console",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "documentationUrl": "https://developers.asana.com/docs/personal-access-token",
+      "deepLink": "https://app.asana.com/0/developer-console",
+      "test": { "method": "GET", "path": "/api/1.0/users/me" }
+    },
+    {
+      "id": "asanaOAuth",
+      "displayName": "Asana OAuth 2.0",
+      "authType": "oauth2",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Access Token",
+          "type": "password",
+          "required": true,
+          "oauthManaged": true
+        },
+        {
+          "name": "refreshToken",
+          "displayName": "Refresh Token",
+          "type": "password",
+          "required": false,
+          "oauthManaged": true
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "oauth": {
+        "authorizeUrl": "https://app.asana.com/-/oauth_authorize",
+        "tokenUrl": "https://app.asana.com/-/oauth_token",
+        "scopes": ["default"],
+        "pkce": true,
+        "clientAuthStyle": "body",
+        "redirectPath": "/oauth/callback",
+        "authorizeQueryParams": {}
+      },
+      "documentationUrl": "https://developers.asana.com/docs/oauth"
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "get-me",
+      "displayName": "Get Current User",
+      "method": "GET",
+      "path": "/api/1.0/users/me",
+      "description": "Retrieve the authenticated user."
+    },
+    {
+      "id": "list-workspaces",
+      "displayName": "List Workspaces",
+      "method": "GET",
+      "path": "/api/1.0/workspaces",
+      "description": "List the workspaces/organizations the user belongs to."
+    },
+    {
+      "id": "list-tasks",
+      "displayName": "List Tasks",
+      "method": "GET",
+      "path": "/api/1.0/tasks",
+      "description": "List tasks. Must filter by project, workspace+assignee, or section."
+    },
+    {
+      "id": "create-task",
+      "displayName": "Create Task",
+      "method": "POST",
+      "path": "/api/1.0/tasks",
+      "description": "Create a new task.",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "required": ["data"],
+        "properties": { "data": { "type": "object" } }
+      }
+    }
+  ]
+}

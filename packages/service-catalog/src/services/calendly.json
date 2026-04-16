@@ -1,0 +1,97 @@
+{
+  "serviceId": "calendly",
+  "displayName": "Calendly",
+  "docsUrl": "https://developer.calendly.com/api-docs/",
+  "baseUrl": "https://api.calendly.com",
+  "authTypes": [
+    {
+      "id": "calendlyPAT",
+      "displayName": "Calendly Personal Access Token",
+      "authType": "bearer",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Personal Access Token",
+          "type": "password",
+          "required": true,
+          "description": "Create at https://calendly.com/integrations/api_webhooks.",
+          "deepLink": "https://calendly.com/integrations/api_webhooks",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "documentationUrl": "https://developer.calendly.com/getting-started",
+      "deepLink": "https://calendly.com/integrations/api_webhooks",
+      "test": { "method": "GET", "path": "/users/me" }
+    },
+    {
+      "id": "calendlyOAuth",
+      "displayName": "Calendly OAuth 2.0",
+      "authType": "oauth2",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Access Token",
+          "type": "password",
+          "required": true,
+          "oauthManaged": true
+        },
+        {
+          "name": "refreshToken",
+          "displayName": "Refresh Token",
+          "type": "password",
+          "required": false,
+          "oauthManaged": true
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "oauth": {
+        "authorizeUrl": "https://auth.calendly.com/oauth/authorize",
+        "tokenUrl": "https://auth.calendly.com/oauth/token",
+        "scopes": [],
+        "pkce": false,
+        "clientAuthStyle": "body",
+        "redirectPath": "/oauth/callback",
+        "authorizeQueryParams": {}
+      },
+      "documentationUrl": "https://developer.calendly.com/api-docs/ZG9jOjIyMjE2OQ-o-auth-2-0"
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "get-me",
+      "displayName": "Get Current User",
+      "method": "GET",
+      "path": "/users/me",
+      "description": "Retrieve the authenticated user."
+    },
+    {
+      "id": "list-event-types",
+      "displayName": "List Event Types",
+      "method": "GET",
+      "path": "/event_types",
+      "description": "List event types. Required query params: user or organization URI."
+    },
+    {
+      "id": "list-scheduled-events",
+      "displayName": "List Scheduled Events",
+      "method": "GET",
+      "path": "/scheduled_events",
+      "description": "List booked events."
+    },
+    {
+      "id": "cancel-event",
+      "displayName": "Cancel Event",
+      "method": "POST",
+      "path": "/scheduled_events/{uuid}/cancellation",
+      "description": "Cancel a scheduled event.",
+      "bodyContentType": "application/json"
+    }
+  ]
+}

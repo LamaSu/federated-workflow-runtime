@@ -1,0 +1,65 @@
+{
+  "serviceId": "trello",
+  "displayName": "Trello",
+  "docsUrl": "https://developer.atlassian.com/cloud/trello/rest/",
+  "baseUrl": "https://api.trello.com",
+  "authTypes": [
+    {
+      "id": "trelloKeyToken",
+      "displayName": "Trello API Key + Token (query-string auth)",
+      "authType": "apiKey",
+      "fields": [
+        {
+          "name": "apiKey",
+          "displayName": "API Key",
+          "type": "string",
+          "required": true,
+          "description": "Get at https://trello.com/power-ups/admin/ > your Power-Up > API Key.",
+          "deepLink": "https://trello.com/power-ups/admin/",
+          "oauthManaged": false
+        },
+        {
+          "name": "token",
+          "displayName": "Token",
+          "type": "password",
+          "required": true,
+          "description": "User-authorization token — Trello's docs link to the authorize URL inline in the API Key page.",
+          "oauthManaged": false
+        }
+      ],
+      "documentationUrl": "https://developer.atlassian.com/cloud/trello/guides/rest-api/api-introduction/",
+      "deepLink": "https://trello.com/power-ups/admin/"
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "get-me",
+      "displayName": "Get Current Member",
+      "method": "GET",
+      "path": "/1/members/me",
+      "description": "Retrieve the authenticated user. NOTE: Trello auth is via ?key=&token= query params — universal-http passes through headers; workflows must add these to `query` instead."
+    },
+    {
+      "id": "list-boards",
+      "displayName": "List Boards",
+      "method": "GET",
+      "path": "/1/members/me/boards",
+      "description": "List the user's boards."
+    },
+    {
+      "id": "list-cards-on-board",
+      "displayName": "List Cards on Board",
+      "method": "GET",
+      "path": "/1/boards/{id}/cards",
+      "description": "List the cards on a board."
+    },
+    {
+      "id": "create-card",
+      "displayName": "Create Card",
+      "method": "POST",
+      "path": "/1/cards",
+      "description": "Create a new card. Required: idList (query or body).",
+      "bodyContentType": "application/json"
+    }
+  ]
+}

@@ -1,0 +1,107 @@
+{
+  "serviceId": "dropbox",
+  "displayName": "Dropbox",
+  "docsUrl": "https://www.dropbox.com/developers/documentation/http/documentation",
+  "baseUrl": "https://api.dropboxapi.com",
+  "authTypes": [
+    {
+      "id": "dropboxAccessToken",
+      "displayName": "Dropbox App Access Token",
+      "authType": "bearer",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Access Token",
+          "type": "password",
+          "required": true,
+          "description": "Generated from the Dropbox App Console (for single-account use) or via the OAuth flow. Scoped apps use short-lived tokens.",
+          "deepLink": "https://www.dropbox.com/developers/apps",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "documentationUrl": "https://developers.dropbox.com/oauth-guide",
+      "deepLink": "https://www.dropbox.com/developers/apps"
+    },
+    {
+      "id": "dropboxOAuth",
+      "displayName": "Dropbox OAuth 2.0",
+      "authType": "oauth2",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Access Token",
+          "type": "password",
+          "required": true,
+          "oauthManaged": true
+        },
+        {
+          "name": "refreshToken",
+          "displayName": "Refresh Token",
+          "type": "password",
+          "required": false,
+          "oauthManaged": true
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "oauth": {
+        "authorizeUrl": "https://www.dropbox.com/oauth2/authorize",
+        "tokenUrl": "https://api.dropboxapi.com/oauth2/token",
+        "scopes": ["files.content.read", "files.content.write"],
+        "pkce": true,
+        "clientAuthStyle": "body",
+        "redirectPath": "/oauth/callback",
+        "authorizeQueryParams": { "token_access_type": "offline" }
+      },
+      "documentationUrl": "https://developers.dropbox.com/oauth-guide"
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "get-current-account",
+      "displayName": "Get Current Account",
+      "method": "POST",
+      "path": "/2/users/get_current_account",
+      "description": "Retrieve information about the authenticated user.",
+      "bodyContentType": "application/json"
+    },
+    {
+      "id": "list-folder",
+      "displayName": "List Folder",
+      "method": "POST",
+      "path": "/2/files/list_folder",
+      "description": "List the contents of a folder.",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": { "type": "string" },
+          "recursive": { "type": "boolean" }
+        }
+      }
+    },
+    {
+      "id": "get-metadata",
+      "displayName": "Get Metadata",
+      "method": "POST",
+      "path": "/2/files/get_metadata",
+      "description": "Retrieve metadata for a file or folder.",
+      "bodyContentType": "application/json"
+    },
+    {
+      "id": "delete",
+      "displayName": "Delete File / Folder",
+      "method": "POST",
+      "path": "/2/files/delete_v2",
+      "description": "Delete a file or folder.",
+      "bodyContentType": "application/json"
+    }
+  ]
+}

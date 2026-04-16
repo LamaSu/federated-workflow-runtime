@@ -1,0 +1,112 @@
+{
+  "serviceId": "zoom",
+  "displayName": "Zoom",
+  "docsUrl": "https://developers.zoom.us/docs/api/",
+  "baseUrl": "https://api.zoom.us",
+  "authTypes": [
+    {
+      "id": "zoomOAuth",
+      "displayName": "Zoom OAuth 2.0",
+      "authType": "oauth2",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Access Token",
+          "type": "password",
+          "required": true,
+          "oauthManaged": true
+        },
+        {
+          "name": "refreshToken",
+          "displayName": "Refresh Token",
+          "type": "password",
+          "required": false,
+          "oauthManaged": true
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "oauth": {
+        "authorizeUrl": "https://zoom.us/oauth/authorize",
+        "tokenUrl": "https://zoom.us/oauth/token",
+        "scopes": ["user:read", "meeting:read", "meeting:write"],
+        "pkce": true,
+        "clientAuthStyle": "header",
+        "redirectPath": "/oauth/callback",
+        "authorizeQueryParams": {}
+      },
+      "documentationUrl": "https://developers.zoom.us/docs/integrations/oauth/"
+    },
+    {
+      "id": "zoomServerToServer",
+      "displayName": "Zoom Server-to-Server OAuth",
+      "authType": "oauth2",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Access Token",
+          "type": "password",
+          "required": true,
+          "oauthManaged": true
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "oauth": {
+        "authorizeUrl": "https://zoom.us/oauth/authorize",
+        "tokenUrl": "https://zoom.us/oauth/token",
+        "scopes": [],
+        "pkce": false,
+        "clientAuthStyle": "header",
+        "redirectPath": "/oauth/callback",
+        "authorizeQueryParams": { "grant_type": "account_credentials" }
+      },
+      "documentationUrl": "https://developers.zoom.us/docs/internal-apps/s2s-oauth/"
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "get-me",
+      "displayName": "Get Current User",
+      "method": "GET",
+      "path": "/v2/users/me",
+      "description": "Retrieve the current authenticated user."
+    },
+    {
+      "id": "list-meetings",
+      "displayName": "List Meetings",
+      "method": "GET",
+      "path": "/v2/users/{userId}/meetings",
+      "description": "List meetings scheduled for a user."
+    },
+    {
+      "id": "create-meeting",
+      "displayName": "Create Meeting",
+      "method": "POST",
+      "path": "/v2/users/{userId}/meetings",
+      "description": "Schedule a new meeting.",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "required": ["topic"],
+        "properties": {
+          "topic": { "type": "string" },
+          "type": { "type": "number" },
+          "start_time": { "type": "string" },
+          "duration": { "type": "number" }
+        }
+      }
+    },
+    {
+      "id": "delete-meeting",
+      "displayName": "Delete Meeting",
+      "method": "DELETE",
+      "path": "/v2/meetings/{meetingId}",
+      "description": "Delete a scheduled meeting."
+    }
+  ]
+}

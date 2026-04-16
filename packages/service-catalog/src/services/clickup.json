@@ -1,0 +1,100 @@
+{
+  "serviceId": "clickup",
+  "displayName": "ClickUp",
+  "docsUrl": "https://clickup.com/api",
+  "baseUrl": "https://api.clickup.com",
+  "authTypes": [
+    {
+      "id": "clickupPersonalToken",
+      "displayName": "ClickUp Personal API Token",
+      "authType": "apiKey",
+      "fields": [
+        {
+          "name": "apiKey",
+          "displayName": "API Token",
+          "type": "password",
+          "required": true,
+          "description": "Create at https://app.clickup.com/settings/apps. Starts with 'pk_'.",
+          "deepLink": "https://app.clickup.com/settings/apps",
+          "pattern": "^pk_",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "{apiKey}"
+      },
+      "documentationUrl": "https://clickup.com/api/developer-portal/authentication/",
+      "deepLink": "https://app.clickup.com/settings/apps",
+      "test": { "method": "GET", "path": "/api/v2/user" }
+    },
+    {
+      "id": "clickupOAuth",
+      "displayName": "ClickUp OAuth 2.0",
+      "authType": "oauth2",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Access Token",
+          "type": "password",
+          "required": true,
+          "oauthManaged": true
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "{accessToken}"
+      },
+      "oauth": {
+        "authorizeUrl": "https://app.clickup.com/api",
+        "tokenUrl": "https://api.clickup.com/api/v2/oauth/token",
+        "scopes": [],
+        "pkce": false,
+        "clientAuthStyle": "body",
+        "redirectPath": "/oauth/callback",
+        "authorizeQueryParams": {}
+      },
+      "documentationUrl": "https://clickup.com/api/developer-portal/authentication/"
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "get-user",
+      "displayName": "Get Authorized User",
+      "method": "GET",
+      "path": "/api/v2/user",
+      "description": "Retrieve the authorized user."
+    },
+    {
+      "id": "list-teams",
+      "displayName": "List Authorized Teams (Workspaces)",
+      "method": "GET",
+      "path": "/api/v2/team",
+      "description": "List the workspaces (teams) the user belongs to."
+    },
+    {
+      "id": "create-task",
+      "displayName": "Create Task",
+      "method": "POST",
+      "path": "/api/v2/list/{list_id}/task",
+      "description": "Create a task in a list.",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "priority": { "type": "number" }
+        }
+      }
+    },
+    {
+      "id": "get-tasks",
+      "displayName": "Get Tasks in List",
+      "method": "GET",
+      "path": "/api/v2/list/{list_id}/task",
+      "description": "List tasks in a list."
+    }
+  ]
+}
