@@ -8,7 +8,7 @@
  */
 
 import * as ed from "@noble/ed25519";
-import type { Patch } from "@chorus/core";
+import type { Patch } from "@delightfulchorus/core";
 import { base64ToBytes } from "./keys.js";
 import { patchSigningPayload } from "./sign.js";
 

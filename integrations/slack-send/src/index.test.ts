@@ -5,7 +5,7 @@ import {
   RateLimitError,
   type OperationContext,
   type SnapshotRecorder,
-} from "@chorus/core";
+} from "@delightfulchorus/core";
 import integration, {
   extractBearerToken,
   isSlackRetryable,
@@ -78,7 +78,7 @@ afterEach(() => {
 
 // ── Module shape ────────────────────────────────────────────────────────────
 
-describe("@chorus/integration-slack-send module shape", () => {
+describe("@delightfulchorus/integration-slack-send module shape", () => {
   it("exports a valid IntegrationModule", () => {
     expect(integration.manifest.name).toBe("slack-send");
     expect(integration.manifest.authType).toBe("bearer");

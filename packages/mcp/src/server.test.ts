@@ -3,7 +3,7 @@ import type {
   IntegrationManifest,
   IntegrationModule,
   OperationContext,
-} from "@chorus/core";
+} from "@delightfulchorus/core";
 import {
   buildChorusMcpServer,
   dispatchTool,

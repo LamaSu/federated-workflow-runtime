@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { Patch } from "@chorus/core";
+import type { Patch } from "@delightfulchorus/core";
 import {
   advanceStage,
   assignCohort,

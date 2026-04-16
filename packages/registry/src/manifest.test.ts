@@ -5,7 +5,7 @@ import {
   manifestFilename,
   validateManifest,
 } from "./manifest.js";
-import type { Patch } from "@chorus/core";
+import type { Patch } from "@delightfulchorus/core";
 
 function sampleMetadata() {
   return {

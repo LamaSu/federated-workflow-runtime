@@ -1,6 +1,6 @@
 name: publish-npm
 
-# Publishes all @chorus/* and @chorus-integrations/* packages to npmjs.com.
+# Publishes all @delightfulchorus/* and @chorus-integrations/* packages to npmjs.com.
 #
 # Uses npm provenance via GitHub OIDC (no static NODE_AUTH_TOKEN required).
 # The npm registry must be pre-configured as a "Trusted Publisher" for each
@@ -150,6 +150,6 @@ jobs:
           echo "- Job: \`${{ job.status }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Verify on npm:" >> "$GITHUB_STEP_SUMMARY"
-          echo "- https://www.npmjs.com/package/@chorus/cli" >> "$GITHUB_STEP_SUMMARY"
-          echo "- https://www.npmjs.com/package/@chorus/runtime" >> "$GITHUB_STEP_SUMMARY"
-          echo "- https://www.npmjs.com/package/@chorus/core" >> "$GITHUB_STEP_SUMMARY"
+          echo "- https://www.npmjs.com/package/@delightfulchorus/cli" >> "$GITHUB_STEP_SUMMARY"
+          echo "- https://www.npmjs.com/package/@delightfulchorus/runtime" >> "$GITHUB_STEP_SUMMARY"
+          echo "- https://www.npmjs.com/package/@delightfulchorus/core" >> "$GITHUB_STEP_SUMMARY"

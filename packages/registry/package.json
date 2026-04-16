@@ -1,5 +1,5 @@
 {
-  "name": "@chorus/registry",
+  "name": "@delightfulchorus/registry",
   "version": "0.1.0",
   "description": "Signed patch registry — git-backed, Ed25519 signatures, canary ladder",
   "type": "module",
@@ -39,7 +39,7 @@
     "prepublishOnly": "npm run build && npm test"
   },
   "dependencies": {
-    "@chorus/core": "*",
+    "@delightfulchorus/core": "*",
     "@noble/ed25519": "^2.1.0",
     "@noble/hashes": "^1.5.0",
     "simple-git": "^3.27.0",

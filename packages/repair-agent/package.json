@@ -1,5 +1,5 @@
 {
-  "name": "@chorus/repair-agent",
+  "name": "@delightfulchorus/repair-agent",
   "version": "0.1.0",
   "description": "Claude-powered repair agent — proposes integration patches, validates via snapshots",
   "type": "module",
@@ -40,7 +40,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.0",
-    "@chorus/core": "*",
+    "@delightfulchorus/core": "*",
     "zod": "^3.23.0"
   }
 }

@@ -1,5 +1,5 @@
 /**
- * @chorus/mcp — tool-mapping
+ * @delightfulchorus/mcp — tool-mapping
  *
  * Pure functions that transform a Chorus IntegrationManifest into an array
  * of MCP tool descriptors. No side effects, no I/O, no MCP SDK types — just
@@ -24,7 +24,7 @@
  * conversion needed).
  *
  * `CredentialTypeDefinition` / `CredentialField` are imported from
- * `@chorus/core` (landed by credentials-oscar in
+ * `@delightfulchorus/core` (landed by credentials-oscar in
  * `packages/core/src/credential-catalog.ts`). Per docs §7.4: "`mcp-papa`
  * needs `IntegrationManifest.credentialTypes: CredentialTypeDefinition[]`
  * — that's it."
@@ -34,7 +34,7 @@ import type {
   CredentialTypeDefinition,
   IntegrationManifest,
   OperationDefinition,
-} from "@chorus/core";
+} from "@delightfulchorus/core";
 
 // ── MCP tool shape ──────────────────────────────────────────────────────────
 
@@ -78,8 +78,8 @@ export type CredentialVerb = "list_credentials" | "configure" | "authenticate" |
 
 /**
  * Back-compat aliases for the canonical credential types. External callers
- * that imported these view types from `@chorus/mcp` continue to work; they
- * now point at credentials-oscar's canonical `@chorus/core` exports.
+ * that imported these view types from `@delightfulchorus/mcp` continue to work; they
+ * now point at credentials-oscar's canonical `@delightfulchorus/core` exports.
  */
 export type CredentialTypeView = CredentialTypeDefinition;
 export type CredentialFieldView = CredentialField;

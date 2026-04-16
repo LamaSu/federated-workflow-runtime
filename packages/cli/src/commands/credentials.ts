@@ -6,7 +6,7 @@
  * before being written to SQLite. Plaintext never hits disk, never hits
  * stdout — this command LISTS labels only and REMOVES by label.
  *
- * When @chorus/runtime is available, we delegate encryption to its
+ * When @delightfulchorus/runtime is available, we delegate encryption to its
  * credentials module (so we share a code path with the executor). If the
  * runtime isn't built yet, we fall back to an inline AES-GCM helper that
  * matches the algorithm documented in ARCHITECTURE §4.6.
@@ -14,7 +14,7 @@
  * The catalog-aware subcommands (`test`, `types`, `migrate`, `pat-help`)
  * accept an optional `integrationLoader` so callers can inject a
  * pre-wired integration resolver; the default loader dynamic-imports
- * `@chorus/integration-<name>`.
+ * `@delightfulchorus/integration-<name>`.
  */
 import { randomBytes, createCipheriv, createDecipheriv } from "node:crypto";
 import { randomUUID } from "node:crypto";
@@ -27,7 +27,7 @@ import type {
   IntegrationManifest,
   IntegrationModule,
   OperationContext,
-} from "@chorus/core";
+} from "@delightfulchorus/core";
 import { loadConfig } from "../config.js";
 
 export type CredentialType = "apiKey" | "oauth2" | "basic" | "bearer";
@@ -364,16 +364,16 @@ async function promptSecret(prompt: string): Promise<string> {
 // ── Catalog-aware subcommands (docs/CREDENTIALS_ANALYSIS.md §6) ─────────────
 
 /**
- * Integration loader signature — matches `@chorus/runtime`'s
+ * Integration loader signature — matches `@delightfulchorus/runtime`'s
  * `IntegrationLoader`. Kept isomorphic so both can use the same
- * `@chorus/integration-<name>` convention or an injected resolver.
+ * `@delightfulchorus/integration-<name>` convention or an injected resolver.
  */
 export type IntegrationLoader = (
   integration: string,
 ) => Promise<IntegrationModule>;
 
 /**
- * Default loader: dynamic-imports `@chorus/integration-<name>`. Returns
+ * Default loader: dynamic-imports `@delightfulchorus/integration-<name>`. Returns
  * the default export (the IntegrationModule). Throws a descriptive
  * error when the package isn't installed.
  */
@@ -385,20 +385,20 @@ export async function defaultIntegrationLoader(
   ) => Promise<unknown>;
   try {
     const mod = (await dynamicImport(
-      `@chorus/integration-${name}`,
+      `@delightfulchorus/integration-${name}`,
     )) as { default?: IntegrationModule } | IntegrationModule;
     const m =
       (mod as { default?: IntegrationModule }).default ??
       (mod as IntegrationModule);
     if (!m?.manifest) {
       throw new Error(
-        `@chorus/integration-${name} does not export a valid IntegrationModule`,
+        `@delightfulchorus/integration-${name} does not export a valid IntegrationModule`,
       );
     }
     return m;
   } catch (err) {
     throw new Error(
-      `cannot load @chorus/integration-${name}: ${(err as Error).message}`,
+      `cannot load @delightfulchorus/integration-${name}: ${(err as Error).message}`,
     );
   }
 }
@@ -409,7 +409,7 @@ export interface CredentialsTestOptions {
   cwd?: string;
   /** Reference: `<integration>:<name>` (e.g. `slack-send:default`). */
   ref: string;
-  /** Override integration loader; defaults to @chorus/integration-<name>. */
+  /** Override integration loader; defaults to @delightfulchorus/integration-<name>. */
   integrationLoader?: IntegrationLoader;
   /** Override fetch — used by tests. */
   fetchFn?: typeof fetch;

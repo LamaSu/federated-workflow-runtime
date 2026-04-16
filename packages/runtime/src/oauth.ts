@@ -1,7 +1,7 @@
 import type {
   CredentialTypeDefinition,
   IntegrationManifest,
-} from "@chorus/core";
+} from "@delightfulchorus/core";
 import type { DatabaseType, CredentialRow } from "./db.js";
 import { QueryHelpers } from "./db.js";
 import {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { IntegrationManifest } from "@chorus/core";
+import type { IntegrationManifest } from "@delightfulchorus/core";
 import {
   credentialTypeToMcpTools,
   manifestToMcpTools,

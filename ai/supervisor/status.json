@@ -1,0 +1,32 @@
+{
+  "task": "Session 3: typed credential catalog (n8n-inspired) + auto-MCP per integration + npm publication + event triggers",
+  "classification": "build",
+  "started_at": "2026-04-14T01:30:00Z",
+  "updated_at": "2026-04-14T01:30:00Z",
+  "status": "running",
+  "current_phase": "Phase 5: Build Wave 1",
+  "progress_pct": 30,
+  "phases": [
+    {"id": 0, "name": "Intake", "status": "completed", "notes": "Resumed; WORKING_MEMORY current"},
+    {"id": 1, "name": "Decomposition", "status": "completed", "notes": "5 agents across 2 waves"},
+    {"id": 2, "name": "Wheel-Scout", "status": "skipped", "notes": "User pasted n8n analysis (the wheel scout's job done by the user)"},
+    {"id": 3, "name": "Bootstrap", "status": "completed"},
+    {"id": 5, "name": "Build Waves", "status": "running"},
+    {"id": 6, "name": "Integration", "status": "pending"},
+    {"id": 7, "name": "Smoke Test", "status": "pending"}
+  ],
+  "agents": [],
+  "waves": [
+    {"id": 1, "status": "running", "tasks": ["compare-mike: credential analysis + design", "npm-november: package publication"]},
+    {"id": 2, "status": "pending", "tasks": ["credentials-oscar: typed catalog impl", "mcp-papa: auto-MCP per integration", "events-quebec: event triggers + step.waitForEvent"]}
+  ],
+  "events": [
+    {"time": "2026-04-14T01:30:00Z", "type": "info", "message": "Session 3: 5 agents across 2 waves; user contributed n8n architectural analysis as scout substitute"}
+  ],
+  "decisions": [
+    {"decision": "Adopt n8n's typed credential catalog pattern", "rationale": "User's n8n analysis showed it's the IP — well-defined schema per integration so engine knows how to authenticate. We have AES + OAuth refresh; missing the typed catalog."},
+    {"decision": "Wave 1 = analysis + npm (independent), Wave 2 = 3 implementers reading Wave 1 design", "rationale": "compare-mike's design doc declares manifest fields that credentials-oscar implements and mcp-papa consumes — sequential dependency"},
+    {"decision": "Auto-MCP scope: per-integration generated server, not per-deployment", "rationale": "Each installed integration becomes an MCP server exposing its operations. Skills+CLI fallback per ROADMAP §1."}
+  ],
+  "broadcast_cron_id": null
+}

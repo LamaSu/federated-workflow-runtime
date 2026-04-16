@@ -1,7 +1,7 @@
 /**
  * `chorus patch <list|apply|propose|revoke>` — patch management.
  *
- * This command delegates to @chorus/registry (for catalog ops) and reads/
+ * This command delegates to @delightfulchorus/registry (for catalog ops) and reads/
  * writes the local SQLite DB for the user's adoption state. As with the
  * rest of the CLI, sibling package imports are indirected so the CLI can
  * still build/test when siblings haven't shipped dist/ yet.
@@ -79,11 +79,11 @@ async function applyPatch(opts: PatchOptions): Promise<number> {
     process.stderr.write(pc.red("error: patch apply <patch-id> is required\n"));
     return 1;
   }
-  const registry = await tryImport<RegistryModule>("@chorus/registry");
+  const registry = await tryImport<RegistryModule>("@delightfulchorus/registry");
   const p = process.stdout.write.bind(process.stdout);
   if (!registry?.fetchPatch || !registry?.verifyPatch) {
     p(
-      `${pc.yellow("!")} @chorus/registry not available — recording intent locally only.\n` +
+      `${pc.yellow("!")} @delightfulchorus/registry not available — recording intent locally only.\n` +
         `   Once the registry package ships fetchPatch/verifyPatch, re-run to complete.\n`,
     );
     return await recordLocalIntent(opts.cwd, opts.patchId, "apply_pending");
@@ -112,10 +112,10 @@ async function proposePatch(opts: PatchOptions): Promise<number> {
     process.stderr.write(pc.red("error: patch propose --manifest=<path> is required\n"));
     return 1;
   }
-  const registry = await tryImport<RegistryModule>("@chorus/registry");
+  const registry = await tryImport<RegistryModule>("@delightfulchorus/registry");
   const p = process.stdout.write.bind(process.stdout);
   if (!registry?.submitProposal) {
-    p(`${pc.yellow("!")} @chorus/registry not available — proposal not submitted.\n`);
+    p(`${pc.yellow("!")} @delightfulchorus/registry not available — proposal not submitted.\n`);
     return 2;
   }
   const abs = path.resolve(opts.manifestPath);
@@ -141,7 +141,7 @@ async function revokePatch(opts: PatchOptions): Promise<number> {
   const p = process.stdout.write.bind(process.stdout);
   await recordLocalIntent(opts.cwd, opts.patchId, "revoked");
   p(`${pc.green("✓")} locally revoked ${pc.cyan(opts.patchId)}\n`);
-  const registry = await tryImport<RegistryModule>("@chorus/registry");
+  const registry = await tryImport<RegistryModule>("@delightfulchorus/registry");
   if (registry?.reportRevocation) {
     await registry.reportRevocation(opts.patchId);
     p(`   ${pc.dim("reported to registry")}\n`);

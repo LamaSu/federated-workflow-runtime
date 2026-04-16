@@ -9,7 +9,7 @@
 
 import * as ed from "@noble/ed25519";
 import { sha512 } from "@noble/hashes/sha512";
-import type { Patch } from "@chorus/core";
+import type { Patch } from "@delightfulchorus/core";
 import { canonicalJson } from "./manifest.js";
 import { base64ToBytes, bytesToBase64 } from "./keys.js";
 

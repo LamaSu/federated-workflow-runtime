@@ -1,7 +1,7 @@
 /**
  * Patch manifest helpers per ARCHITECTURE.md §5.2.
  *
- * Validation is delegated to @chorus/core PatchSchema (the wire format).
+ * Validation is delegated to @delightfulchorus/core PatchSchema (the wire format).
  * This module adds:
  *   - validateManifest(): parse + narrow + return typed Patch (or Error, never throws)
  *   - computeContentHash(): deterministic SHA-256 of canonical JSON (signature excluded)
@@ -14,7 +14,7 @@ import {
   PatchSchema,
   type Patch,
   type PatchMetadata,
-} from "@chorus/core";
+} from "@delightfulchorus/core";
 
 export { PatchSchema, PatchMetadataSchema };
 export type { Patch, PatchMetadata };

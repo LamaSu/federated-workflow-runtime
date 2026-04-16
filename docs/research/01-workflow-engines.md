@@ -322,7 +322,7 @@ Copy Activepieces + Pipedream:
 - One primitive: **Action** (a step that runs). Triggers are a subtype of action with a `trigger_type` field.
 - Each integration = one npm package implementing `ChorusAction[]` and `ChorusCredential[]`.
 - Declarative-first (HTTP routing config), programmatic escape hatch.
-- Hot-reload in dev. `npm create @chorus/action` scaffolder.
+- Hot-reload in dev. `npm create @delightfulchorus/action` scaffolder.
 - **Auto-surface as MCP**: every action deployed to a Chorus instance is automatically exposed as an MCP tool for AI agents (Activepieces 2025 breakthrough). This is table stakes.
 
 ### State Persistence: Postgres single-store

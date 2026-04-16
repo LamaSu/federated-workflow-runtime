@@ -1,4 +1,4 @@
-// Public API surface for @chorus/runtime.
+// Public API surface for @delightfulchorus/runtime.
 // Keep exports explicit so downstream packages don't accidentally depend on
 // internals.
 

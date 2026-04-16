@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes, createCipheriv } from "node:crypto";
-import type { IntegrationModule } from "@chorus/core";
+import type { IntegrationModule } from "@delightfulchorus/core";
 import {
   credentialsMigrate,
   credentialsPatHelp,
@@ -17,7 +17,7 @@ import {
  * docs/CREDENTIALS_ANALYSIS.md). We spin up isolated temp directories,
  * write a minimal chorus config, pre-create a credentials table, and
  * inject a fake IntegrationModule loader to avoid relying on real
- * @chorus/integration-* packages.
+ * @delightfulchorus/integration-* packages.
  */
 
 // ── Test helpers ────────────────────────────────────────────────────────────

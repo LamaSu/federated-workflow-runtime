@@ -1,5 +1,5 @@
 /**
- * @chorus/registry — public API.
+ * @delightfulchorus/registry — public API.
  *
  * All consumers (runtime, repair-agent, CLI) import from here. Keep this surface small:
  * everything else is internal-but-testable.

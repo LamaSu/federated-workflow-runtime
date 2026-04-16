@@ -4,7 +4,7 @@
  */
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { WorkflowSchema, type Workflow } from "@chorus/core";
+import { WorkflowSchema, type Workflow } from "@delightfulchorus/core";
 import pc from "picocolors";
 import { z } from "zod";
 import { parseYaml } from "../yaml.js";

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { IntegrationError, RateLimitError, type OperationContext, type SnapshotRecorder } from "@chorus/core";
+import { IntegrationError, RateLimitError, type OperationContext, type SnapshotRecorder } from "@delightfulchorus/core";
 import integration, { parseRetryAfter, request } from "./index.js";
 
 // ── Test scaffolding ────────────────────────────────────────────────────────
@@ -73,7 +73,7 @@ afterEach(() => {
 
 // ── Module shape ────────────────────────────────────────────────────────────
 
-describe("@chorus/integration-http-generic module shape", () => {
+describe("@delightfulchorus/integration-http-generic module shape", () => {
   it("exports a valid IntegrationModule", () => {
     expect(integration.manifest.name).toBe("http-generic");
     expect(integration.manifest.authType).toBe("none");

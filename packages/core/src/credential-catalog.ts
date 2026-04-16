@@ -16,7 +16,7 @@
  *
  * IMPORTANT: `credentials-oscar` owns the canonical credential schema. The
  * `mcp-papa` and `events-quebec` agents MUST import credential types from
- * `@chorus/core` rather than redeclaring them.
+ * `@delightfulchorus/core` rather than redeclaring them.
  */
 import { z } from "zod";
 

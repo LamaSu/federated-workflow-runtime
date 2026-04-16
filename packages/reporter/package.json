@@ -1,5 +1,5 @@
 {
-  "name": "@chorus/reporter",
+  "name": "@delightfulchorus/reporter",
   "version": "0.1.0",
   "description": "Failure reporter — PII redaction, signature extraction, registry submission",
   "type": "module",
@@ -37,7 +37,7 @@
     "prepublishOnly": "npm run build && npm test"
   },
   "dependencies": {
-    "@chorus/core": "*",
+    "@delightfulchorus/core": "*",
     "zod": "^3.23.0"
   }
 }

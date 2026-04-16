@@ -34,7 +34,7 @@ let tmpDir: string;
  * Set up a fake project root with:
  *   tmpDir/
  *     package.json  (workspace root)
- *     node_modules/@chorus/integration-slack-send/
+ *     node_modules/@delightfulchorus/integration-slack-send/
  *       package.json
  *       dist/index.js   (the integration module)
  *
@@ -60,7 +60,7 @@ async function setupFakeProject(opts: {
   await writeFile(
     path.join(intRoot, "package.json"),
     JSON.stringify({
-      name: `@chorus/integration-${name}`,
+      name: `@delightfulchorus/integration-${name}`,
       version: "0.1.0",
       main: "./dist/index.js",
       type: "module",

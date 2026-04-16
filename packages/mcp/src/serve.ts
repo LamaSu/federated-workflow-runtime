@@ -1,5 +1,5 @@
 /**
- * @chorus/mcp — serve
+ * @delightfulchorus/mcp — serve
  *
  * Inline MCP serve: given an IntegrationModule, start an MCP server on
  * stdio in the CURRENT process. No files written, no scaffold emitted —
@@ -8,7 +8,7 @@
  *
  * For the scaffold-a-standalone-server variant, see `generate.ts`.
  */
-import type { IntegrationModule } from "@chorus/core";
+import type { IntegrationModule } from "@delightfulchorus/core";
 import {
   runChorusMcpServerStdio,
   buildChorusMcpServer,

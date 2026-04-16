@@ -55,9 +55,9 @@ Signal in the wild: *"I already have Chorus installed for my cron webhooks, can 
 
 ### First 3-5 concrete steps
 
-1. **`@chorus/mcp` package scaffold** — peer dep on `@modelcontextprotocol/sdk`, mirror `packages/runtime/` layout.
+1. **`@delightfulchorus/mcp` package scaffold** — peer dep on `@modelcontextprotocol/sdk`, mirror `packages/runtime/` layout.
 2. **`IntegrationManifest → MCP.Tool` transform** — lives in `packages/mcp/src/transform.ts`. Zod JSONSchema conversion already exists. Test against 3 integrations (http-generic, slack-send, one synthetic with complex unions).
-3. **`chorus mcp` CLI entrypoint** — scans `chorus/integrations/**`, serves MCP over stdio. Delegates execution to `@chorus/runtime` (same executor as `step.run`; no duplicate logic).
+3. **`chorus mcp` CLI entrypoint** — scans `chorus/integrations/**`, serves MCP over stdio. Delegates execution to `@delightfulchorus/runtime` (same executor as `step.run`; no duplicate logic).
 4. **Credential wiring** — MCP calls need the runtime's encrypted credential store. v1.1: `CHORUS_PROFILE=prod chorus mcp`. v1.2: credential-selection tool-call in MCP itself.
 5. **Ship** — test with Claude Desktop + Cursor + Zed. Add `ARCHITECTURE.md` §8.4 "Auto-MCP exposure." Update `QUICKSTART.md` with a 3-line example.
 
@@ -91,7 +91,7 @@ Competitor ships first. Chorus becomes "the pre-agent version of X." The `ARCHIT
 
 ### What it is
 
-`@chorus/runtime` persists to SQLite via `better-sqlite3` (`docs/ARCHITECTURE.md` §4.5). Queue claim uses `UPDATE ... LIMIT 1 RETURNING` (§4.1). Postgres migration is a one-way CLI:
+`@delightfulchorus/runtime` persists to SQLite via `better-sqlite3` (`docs/ARCHITECTURE.md` §4.5). Queue claim uses `UPDATE ... LIMIT 1 RETURNING` (§4.1). Postgres migration is a one-way CLI:
 
 ```
 chorus migrate --to postgres --url postgres://user:pass@host/chorus
@@ -249,7 +249,7 @@ Tuning knob: start gate at "fail > 5%" in v1.1, tighten to "fail any" in v1.2 as
 
 ### What it is
 
-All 7 packages (`@chorus/core`, `@chorus/runtime`, `@chorus/registry`, `@chorus/reporter`, `@chorus/repair-agent`, `@chorus/cli`, two integrations) are private. Nothing on npmjs.com. `npx chorus init` 404s.
+All 7 packages (`@delightfulchorus/core`, `@delightfulchorus/runtime`, `@delightfulchorus/registry`, `@delightfulchorus/reporter`, `@delightfulchorus/repair-agent`, `@delightfulchorus/cli`, two integrations) are private. Nothing on npmjs.com. `npx chorus init` 404s.
 
 Three shipping prongs:
 1. **npm** (primary) — `npm install -g chorus` or `npx chorus init`.
@@ -265,8 +265,8 @@ Homebrew: ship at >100 npm installs (maintainers prefer mild traction). MSI: onl
 ### First 3-5 concrete steps
 
 1. **Audit all 7 `package.json`s.** Claim `@chorus` on npmjs.com (verify unclaimed first). Set `version: 0.1.0`, `publishConfig.access: public` for scoped packages, explicit `files` allowlist (no `.ts` source in the tarball), verify `main`/`types`/`exports`.
-2. **`pnpm publish --filter @chorus/*` with `--access public`.** Dry-run first; eyeball tarball contents.
-3. **CLI binary** — `@chorus/cli`'s `bin` field exists; verify the tarball includes compiled `dist/bin.js`. Run `npx @chorus/cli@0.1.0 --help` from a clean tmpdir.
+2. **`pnpm publish --filter @delightfulchorus/*` with `--access public`.** Dry-run first; eyeball tarball contents.
+3. **CLI binary** — `@delightfulchorus/cli`'s `bin` field exists; verify the tarball includes compiled `dist/bin.js`. Run `npx @delightfulchorus/cli@0.1.0 --help` from a clean tmpdir.
 4. **`chorus init` bootstrapping** — already works per `cli-india`'s build. Verify: `mkdir foo && cd foo && npx chorus init && chorus run` lands on a working dev server.
 5. **Docs + first public release** — `QUICKSTART.md` uses the real `npx chorus init`. `README.md` has npm + Homebrew (coming soon) sections. Push to GitHub.
 
@@ -286,7 +286,7 @@ Low. Unlike every other item, rushed npm publication is almost never a problem. 
 
 **Two gotchas:**
 - `pnpm workspace:*` protocol: must resolve to concrete versions in the tarball. `pnpm publish` does this automatically, but verify. No `workspace:*` in published `dependencies`.
-- Integrations in `integrations/`, not `packages/`. Decide: bundled inside `@chorus/cli`, or their own namespace? **Decision: single `@chorus` scope with `@chorus/integration-<name>` prefix** — keeps publication inside one org and eliminates the need for a second scope. Community integrations follow the same naming.
+- Integrations in `integrations/`, not `packages/`. Decide: bundled inside `@delightfulchorus/cli`, or their own namespace? **Decision: single `@chorus` scope with `@delightfulchorus/integration-<name>` prefix** — keeps publication inside one org and eliminates the need for a second scope. Community integrations follow the same naming.
 
 ### References
 
@@ -373,7 +373,7 @@ The original roadmap had a drag-drop visual flow builder at `ARCHITECTURE.md` §
 
 `ui-kilo`'s parallel deliverables (not in roadmap-lima's scope to detail):
 
-1. **JSON API** — `@chorus/runtime` exposes `/api/runs`, `/api/patches`, `/api/credentials` (redacted), `/api/workflows`, `/api/integrations`. OpenAPI 3.1 spec. Accessible locally at `http://localhost:$PORT/api/*`.
+1. **JSON API** — `@delightfulchorus/runtime` exposes `/api/runs`, `/api/patches`, `/api/credentials` (redacted), `/api/workflows`, `/api/integrations`. OpenAPI 3.1 spec. Accessible locally at `http://localhost:$PORT/api/*`.
 2. **`chorus ui --prompt`** — emits a prompt template. User copies to their agent with "give me a dashboard with dark mode and a focus on failed runs." Agent generates React/Svelte/HTMX/whatever, fetches the JSON API, renders the user's dream dashboard.
 3. **OpenAPI spec as a static artifact** — pointable from Postman/Bruno/Insomnia.
 

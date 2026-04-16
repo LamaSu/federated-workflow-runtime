@@ -1,5 +1,5 @@
 {
-  "name": "@chorus/mcp",
+  "name": "@delightfulchorus/mcp",
   "version": "0.1.0",
   "description": "Auto-MCP: expose Chorus integrations as MCP tools (generate or serve inline)",
   "type": "module",
@@ -67,7 +67,7 @@
     "prepublishOnly": "npm run build && npm test"
   },
   "dependencies": {
-    "@chorus/core": "*",
+    "@delightfulchorus/core": "*",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "zod": "^3.23.0",
     "zod-to-json-schema": "^3.23.0"

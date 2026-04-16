@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { ErrorSignature } from "@chorus/core";
+import type { ErrorSignature } from "@delightfulchorus/core";
 import type {
   PatchProposal,
   SubmissionMode,

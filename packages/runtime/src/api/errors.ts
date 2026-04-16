@@ -9,7 +9,7 @@ import { z } from "zod";
  * occurrences — the "what keeps breaking" dashboard surface.
  *
  * `sampleContext` is parsed from the `components` JSON blob in
- * error_signatures — it's already redacted at ingest time (see @chorus/reporter)
+ * error_signatures — it's already redacted at ingest time (see @delightfulchorus/reporter)
  * so we can safely expose it to UI.
  */
 

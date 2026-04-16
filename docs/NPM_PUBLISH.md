@@ -4,7 +4,7 @@
 
 ## Who this is for
 
-Anyone releasing a new version of `@chorus/*` (including the `@chorus/integration-*` packages) to npmjs.com. That's two audiences:
+Anyone releasing a new version of `@delightfulchorus/*` (including the `@delightfulchorus/integration-*` packages) to npmjs.com. That's two audiences:
 
 1. **Release managers** — you bump the version, tag, and let CI publish.
 2. **Anyone debugging a broken publish** — you need to know the manual fallback.
@@ -17,7 +17,7 @@ Most days, you only read §3. §1 is one-time setup. §2, §4, §5, §6 are for 
 
 ### 1.1 Claim the npm scopes
 
-`@chorus` is a single npm org (scope) covering all 9 packages. Integrations live under `@chorus/integration-<name>` to stay inside the one scope. The org must be claimed on npmjs.com before any publish.
+`@chorus` is a single npm org (scope) covering all 9 packages. Integrations live under `@delightfulchorus/integration-<name>` to stay inside the one scope. The org must be claimed on npmjs.com before any publish.
 
 ```bash
 # Log in to npm with the account that will own the orgs.
@@ -45,7 +45,7 @@ For each published package: go to `https://www.npmjs.com/package/<name>/access`,
 
 Packages to configure (nine total):
 
-All under the single `chorus` scope: `@chorus/core`, `@chorus/runtime`, `@chorus/registry`, `@chorus/reporter`, `@chorus/repair-agent`, `@chorus/cli`, `@chorus/mcp`, `@chorus/integration-http-generic`, `@chorus/integration-slack-send`.
+All under the single `chorus` scope: `@delightfulchorus/core`, `@delightfulchorus/runtime`, `@delightfulchorus/registry`, `@delightfulchorus/reporter`, `@delightfulchorus/repair-agent`, `@delightfulchorus/cli`, `@delightfulchorus/mcp`, `@delightfulchorus/integration-http-generic`, `@delightfulchorus/integration-slack-send`.
 
 **Chicken-and-egg.** Trusted Publisher requires the name to exist on npm first. For the `0.1.0` release, manually publish once with a personal token, then bind Trusted Publisher. Every later release is CI-driven.
 
@@ -60,8 +60,8 @@ All under the single `chorus` scope: `@chorus/core`, `@chorus/runtime`, `@chorus
 Three choices you will be tempted to second-guess:
 
 - **Workspace deps stay as `"*"`.** `npm publish --workspaces` rewrites `*` to the actual version at publish time (npm 7+). We do NOT pre-rewrite via a script — that would introduce drift and complicate prereleases. If `check-publish-ready.sh` ever catches a broken tarball, the gate did its job.
-- **OIDC provenance, not static `NODE_AUTH_TOKEN`.** Every tarball is signed by Sigstore, linked to this repo + commit + workflow. Users verify with `npm audit signatures @chorus/cli`. Same trust model as `federation/github-actions/sign-patch.yml`. Rotating tokens is a distraction; being compromised is worse.
-- **Version lockstep.** All nine packages bump together, enforced by `scripts/bump-version.js --check` in CI. Cost: a single-package bugfix still bumps the patch version of the others. Benefit: `@chorus/cli@X.Y.Z` always expects `@chorus/runtime@X.Y.Z`. Through v1.x the cost is trivial; revisit post-1.0 if it hurts.
+- **OIDC provenance, not static `NODE_AUTH_TOKEN`.** Every tarball is signed by Sigstore, linked to this repo + commit + workflow. Users verify with `npm audit signatures @delightfulchorus/cli`. Same trust model as `federation/github-actions/sign-patch.yml`. Rotating tokens is a distraction; being compromised is worse.
+- **Version lockstep.** All nine packages bump together, enforced by `scripts/bump-version.js --check` in CI. Cost: a single-package bugfix still bumps the patch version of the others. Benefit: `@delightfulchorus/cli@X.Y.Z` always expects `@delightfulchorus/runtime@X.Y.Z`. Through v1.x the cost is trivial; revisit post-1.0 if it hurts.
 
 ---
 
@@ -89,14 +89,14 @@ git push lamasu HEAD release/v0.2.0
 #    Workflow phases: ci → check-publish-ready → version-sync → build → test → publish.
 
 # 5. Verify on npm.
-npm view @chorus/cli@0.2.0
-npm audit signatures @chorus/cli@0.2.0       # must say "verified"
-# Confirm the "Provenance" badge at https://www.npmjs.com/package/@chorus/cli
+npm view @delightfulchorus/cli@0.2.0
+npm audit signatures @delightfulchorus/cli@0.2.0       # must say "verified"
+# Confirm the "Provenance" badge at https://www.npmjs.com/package/@delightfulchorus/cli
 
 # 6. Smoke-test from a clean tmpdir.
 cd /tmp && mkdir chorus-smoke && cd chorus-smoke
-npx @chorus/cli@0.2.0 --version              # prints 0.2.0
-npx @chorus/cli@0.2.0 init                   # scaffolds ./chorus/
+npx @delightfulchorus/cli@0.2.0 --version              # prints 0.2.0
+npx @delightfulchorus/cli@0.2.0 init                   # scaffolds ./chorus/
 ```
 
 If `npx chorus init` 404s, the `bin` field didn't package correctly — roll back per §5 and investigate.
@@ -148,14 +148,14 @@ git tag release/v0.2.1
 git push lamasu HEAD release/v0.2.1
 ```
 
-CI will publish `0.2.1`. Users who `npm install @chorus/cli@latest` immediately pick it up. Users pinned to `0.2.0` stay pinned until they re-install.
+CI will publish `0.2.1`. Users who `npm install @delightfulchorus/cli@latest` immediately pick it up. Users pinned to `0.2.0` stay pinned until they re-install.
 
 ### 5.2 Last-resort: deprecation
 
 If the bad version is actively harmful (data loss, security issue), add a deprecation message:
 
 ```bash
-npm deprecate @chorus/cli@0.2.0 "Critical bug — upgrade to 0.2.1 or later."
+npm deprecate @delightfulchorus/cli@0.2.0 "Critical bug — upgrade to 0.2.1 or later."
 ```
 
 Deprecation is not removal. The tarball stays available. But `npm install` prints a loud warning.
@@ -220,10 +220,10 @@ Use explicit prerelease versions. CI tags them under `next` dist-tag instead of 
 ```bash
 node scripts/bump-version.js 0.3.0-rc.1
 git tag release/v0.3.0-rc.1 && git push lamasu release/v0.3.0-rc.1
-npm install @chorus/cli@next    # users opt in
+npm install @delightfulchorus/cli@next    # users opt in
 ```
 
-Promote to `latest` manually when ready: `npm dist-tag add @chorus/cli@0.3.0-rc.1 latest` (or just release `0.3.0`).
+Promote to `latest` manually when ready: `npm dist-tag add @delightfulchorus/cli@0.3.0-rc.1 latest` (or just release `0.3.0`).
 
 ---
 

@@ -6,7 +6,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import { AddressInfo } from "node:net";
-import { ChorusError } from "@chorus/core";
+import { ChorusError } from "@delightfulchorus/core";
 import {
   computeReporterId,
   reportFailure,

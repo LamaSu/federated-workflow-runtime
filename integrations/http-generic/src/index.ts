@@ -1,5 +1,5 @@
 /**
- * @chorus/integration-http-generic
+ * @delightfulchorus/integration-http-generic
  *
  * The world's simplest integration: make any HTTP request. Serves two
  * purposes in the Chorus ecosystem:
@@ -18,7 +18,7 @@ import {
   type IntegrationManifest,
   type IntegrationModule,
   type OperationHandler,
-} from "@chorus/core";
+} from "@delightfulchorus/core";
 import { z } from "zod";
 
 // ── Schemas ─────────────────────────────────────────────────────────────────

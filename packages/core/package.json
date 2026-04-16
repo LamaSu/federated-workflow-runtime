@@ -1,5 +1,5 @@
 {
-  "name": "@chorus/core",
+  "name": "@delightfulchorus/core",
   "version": "0.1.0",
   "description": "Shared types, schemas, and utilities for Chorus",
   "type": "module",

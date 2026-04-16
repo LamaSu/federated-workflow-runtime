@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { ErrorSignature } from "@chorus/core";
+import type { ErrorSignature } from "@delightfulchorus/core";
 import { assembleRepairContext } from "./context.js";
 import { proposePatch } from "./propose.js";
 import type {

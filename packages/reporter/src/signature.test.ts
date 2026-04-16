@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ChorusError, hashSignature } from "@chorus/core";
+import { ChorusError, hashSignature } from "@delightfulchorus/core";
 import {
   extractSignature,
   fingerprintApiVersion,

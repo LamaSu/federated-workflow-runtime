@@ -30,7 +30,7 @@ describe("generateMcpServer", () => {
     await expect(stat(readmePath)).resolves.toMatchObject({});
   });
 
-  it("package.json has @chorus/mcp + the integration as dependencies", async () => {
+  it("package.json has @delightfulchorus/mcp + the integration as dependencies", async () => {
     const outDir = path.join(tmpDir, "out");
     await generateMcpServer({ integration: "slack-send", outDir });
     const raw = await readFile(path.join(outDir, "package.json"), "utf8");
@@ -42,8 +42,8 @@ describe("generateMcpServer", () => {
     };
     expect(pkg.name).toBe("chorus-mcp-slack-send");
     expect(pkg.type).toBe("module");
-    expect(pkg.dependencies["@chorus/mcp"]).toBeDefined();
-    expect(pkg.dependencies["@chorus/integration-slack-send"]).toBeDefined();
+    expect(pkg.dependencies["@delightfulchorus/mcp"]).toBeDefined();
+    expect(pkg.dependencies["@delightfulchorus/integration-slack-send"]).toBeDefined();
     expect(pkg.scripts.start).toBe("node index.js");
   });
 
@@ -51,9 +51,9 @@ describe("generateMcpServer", () => {
     const outDir = path.join(tmpDir, "out");
     await generateMcpServer({ integration: "slack-send", outDir });
     const idx = await readFile(path.join(outDir, "index.js"), "utf8");
-    expect(idx).toContain('import { serveIntegration } from "@chorus/mcp/serve"');
+    expect(idx).toContain('import { serveIntegration } from "@delightfulchorus/mcp/serve"');
     expect(idx).toContain(
-      'import integration from "@chorus/integration-slack-send"',
+      'import integration from "@delightfulchorus/integration-slack-send"',
     );
     // Scaffold now passes a credentialService (optional) alongside.
     expect(idx).toContain("serveIntegration({ integration, credentialService })");
@@ -66,7 +66,7 @@ describe("generateMcpServer", () => {
     expect(idx).toContain("CHORUS_RUNTIME_URL");
     expect(idx).toContain("CHORUS_API_TOKEN");
     expect(idx).toContain("HttpCredentialServiceClient");
-    expect(idx).toContain('@chorus/mcp/credential-client');
+    expect(idx).toContain('@delightfulchorus/mcp/credential-client');
     // Should NOT statically import — dynamic import keeps the scaffold
     // working without the client module present in tool-exposure-only mode.
     expect(idx).toContain("await import");
@@ -139,7 +139,7 @@ describe("generateMcpServer", () => {
       await readFile(path.join(outDir, "package.json"), "utf8"),
     ) as { dependencies: Record<string, string> };
     expect(pkg.dependencies["@my-org/chorus-custom"]).toBeDefined();
-    expect(pkg.dependencies["@chorus/integration-custom-integration"]).toBeUndefined();
+    expect(pkg.dependencies["@delightfulchorus/integration-custom-integration"]).toBeUndefined();
     const idx = await readFile(path.join(outDir, "index.js"), "utf8");
     expect(idx).toContain('import integration from "@my-org/chorus-custom"');
   });

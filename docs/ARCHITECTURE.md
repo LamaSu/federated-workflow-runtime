@@ -382,7 +382,7 @@ Five hard lines in the system:
 
 ---
 
-## 4. Runtime (@chorus/runtime)
+## 4. Runtime (@delightfulchorus/runtime)
 
 The runtime is the single largest package. It owns the queue, executor, trigger system,
 credential store, and durable-execution SDK.
@@ -408,7 +408,7 @@ Table: see Section 4.5.
 **Executor model: one Node.js subprocess per Run.**
 
 ```typescript
-// Simplified pseudo-code in @chorus/runtime
+// Simplified pseudo-code in @delightfulchorus/runtime
 async function executorLoop() {
   while (!shuttingDown) {
     const run = await claimNextRun();           // SQLite BEGIN IMMEDIATE
@@ -435,7 +435,7 @@ function runInSubprocess(run: Run) {
 
 ### 4.2 Trigger system
 
-Three MVP trigger types, each implemented in `@chorus/runtime/src/triggers/`:
+Three MVP trigger types, each implemented in `@delightfulchorus/runtime/src/triggers/`:
 
 **webhook**: Fastify route registered at runtime startup. Path shape:
 `POST /hooks/:workflow_id/:token` where token is a per-workflow random string stored
@@ -717,7 +717,7 @@ clear "credential invalid: reauthorize" message. No silent retries; make the use
 
 ---
 
-## 5. Registry (@chorus/registry)
+## 5. Registry (@delightfulchorus/registry)
 
 The registry is the federated trust boundary. It is the ONLY component not running on
 the user's machine.
@@ -982,7 +982,7 @@ vector without stealing the signing workflow — the same threshold as publishin
 
 ---
 
-## 6. Reporter (@chorus/reporter)
+## 6. Reporter (@delightfulchorus/reporter)
 
 The reporter runs in the user's runtime. It catches failures, computes signatures,
 redacts PII, and submits to the registry.
@@ -1126,7 +1126,7 @@ the runtime's patch-fetcher to download + validate + apply.
 
 ---
 
-## 7. Repair Agent (@chorus/repair-agent)
+## 7. Repair Agent (@delightfulchorus/repair-agent)
 
 The local AI that proposes patches. Claude-powered, runs on the user's machine.
 
@@ -1253,7 +1253,7 @@ If local validation passes:
 Every integration package exports:
 
 ```typescript
-import { defineIntegration } from '@chorus/sdk';
+import { defineIntegration } from '@delightfulchorus/sdk';
 import { z } from 'zod';
 
 export default defineIntegration({
@@ -1293,7 +1293,7 @@ Full `slack-send` implementation (minimal):
 
 ```typescript
 // integrations/slack-send/src/index.ts
-import { defineIntegration, type OperationHandler } from '@chorus/sdk';
+import { defineIntegration, type OperationHandler } from '@delightfulchorus/sdk';
 import { z } from 'zod';
 
 const PostMessageInput = z.object({
@@ -1376,7 +1376,7 @@ Tests replay cassettes via vitest:
 
 ```typescript
 import { describe, it, expect } from 'vitest';
-import { loadCassette, replayCassette } from '@chorus/cassette';
+import { loadCassette, replayCassette } from '@delightfulchorus/cassette';
 import integration from '../src/index.js';
 
 describe('slack-send.postMessage', () => {
@@ -1426,7 +1426,7 @@ export const CassetteSchema = z.object({
 
 ---
 
-## 9. CLI (@chorus/cli)
+## 9. CLI (@delightfulchorus/cli)
 
 The `chorus` CLI is the primary user-facing interface. Five commands:
 

@@ -1,5 +1,5 @@
 {
-  "name": "@chorus/runtime",
+  "name": "@delightfulchorus/runtime",
   "version": "0.1.0",
   "description": "Workflow execution engine: cron, webhooks, retries, SQLite state",
   "type": "module",
@@ -45,7 +45,7 @@
     "prepublishOnly": "npm run build && npm test"
   },
   "dependencies": {
-    "@chorus/core": "*",
+    "@delightfulchorus/core": "*",
     "better-sqlite3": "^11.3.0",
     "cron-parser": "^4.9.0",
     "fastify": "^5.0.0",

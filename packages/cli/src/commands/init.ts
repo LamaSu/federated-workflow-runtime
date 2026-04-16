@@ -72,7 +72,7 @@ export async function runInit(options: InitOptions = {}): Promise<InitResult> {
 
   const name = options.name ?? path.basename(cwd);
 
-  // Generate Ed25519 keypair. We try @chorus/registry first (authoritative
+  // Generate Ed25519 keypair. We try @delightfulchorus/registry first (authoritative
   // source once it's built) and fall back to Node's crypto if not yet available.
   const keypair = await generateKeypair();
 
@@ -242,11 +242,11 @@ async function ensureRootGitignore(cwd: string): Promise<void> {
 }
 
 /**
- * Generate an Ed25519 keypair. Prefers @chorus/registry's implementation so
+ * Generate an Ed25519 keypair. Prefers @delightfulchorus/registry's implementation so
  * the whole system uses identical key material; falls back to Node crypto.
  *
  * The import is deliberately indirected through a computed specifier so
- * bundlers (vitest/vite) don't try to statically resolve it when @chorus/registry
+ * bundlers (vitest/vite) don't try to statically resolve it when @delightfulchorus/registry
  * hasn't been built yet.
  */
 async function generateKeypair(): Promise<{
@@ -287,7 +287,7 @@ async function tryImportRegistry(): Promise<RegistryModule | null> {
     s: string,
   ) => Promise<unknown>;
   try {
-    const mod = (await dynamicImport("@chorus/registry")) as RegistryModule;
+    const mod = (await dynamicImport("@delightfulchorus/registry")) as RegistryModule;
     return mod;
   } catch {
     return null;

@@ -1,5 +1,5 @@
 /**
- * @chorus/cli — programmatic entry points.
+ * @delightfulchorus/cli — programmatic entry points.
  *
  * This module re-exports the command functions so other packages (or users'
  * scripts) can invoke them without going through the commander layer. The

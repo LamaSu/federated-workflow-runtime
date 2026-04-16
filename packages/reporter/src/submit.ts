@@ -1,4 +1,4 @@
-import type { RedactedErrorReport } from "@chorus/core";
+import type { RedactedErrorReport } from "@delightfulchorus/core";
 
 /**
  * Result of a submission attempt.
@@ -27,7 +27,7 @@ export interface SubmitOptions {
    * Optional Ed25519 signing helper. Receives the JSON-stringified body and
    * returns a detached signature string. If omitted, no signature header is
    * attached. The registry MVP accepts unsigned reports; signed support is
-   * opt-in until `@chorus/registry` ships signing helpers.
+   * opt-in until `@delightfulchorus/registry` ships signing helpers.
    */
   signingKey?: (body: string) => string | Promise<string>;
   /** Per-request timeout in milliseconds. Default 10_000. */
@@ -81,7 +81,7 @@ export class RateLimiter {
   }
 }
 
-/** Default shared limiter: 10 reports/minute, matching @chorus/reporter docs. */
+/** Default shared limiter: 10 reports/minute, matching @delightfulchorus/reporter docs. */
 const DEFAULT_RATE_LIMITER = new RateLimiter(10);
 
 /**

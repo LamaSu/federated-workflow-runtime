@@ -1,5 +1,5 @@
 import cronParser from "cron-parser";
-import type { CronTrigger } from "@chorus/core";
+import type { CronTrigger } from "@delightfulchorus/core";
 import type { RunQueue } from "../queue.js";
 
 /**

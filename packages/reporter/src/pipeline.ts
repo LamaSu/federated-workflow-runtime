@@ -3,7 +3,7 @@ import { z } from "zod";
 import {
   hashSignature,
   type RedactedErrorReport,
-} from "@chorus/core";
+} from "@delightfulchorus/core";
 import { extractSignature, type ExtractSignatureContext } from "./signature.js";
 import { redactString, extractShape, redactHeaders } from "./redact.js";
 import { fingerprintConfig } from "./fingerprint.js";
@@ -12,7 +12,7 @@ import { submitReport, type SubmitOptions, type SubmitResult } from "./submit.js
 /**
  * Stricter-than-core validation schema per ARCHITECTURE.md §6.2.
  *
- * `@chorus/core` provides a permissive schema for wire compatibility, but
+ * `@delightfulchorus/core` provides a permissive schema for wire compatibility, but
  * the reporter MUST refuse to emit any envelope that doesn't satisfy the
  * tighter rules here (regex on reporterId, datetime on timestamps, etc).
  * This is the fail-closed gate.

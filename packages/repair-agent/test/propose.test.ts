@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ErrorSignature } from "@chorus/core";
+import type { ErrorSignature } from "@delightfulchorus/core";
 import {
   parseProposal,
   ProposalParseError,

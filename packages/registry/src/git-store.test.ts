@@ -3,7 +3,7 @@ import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { simpleGit } from "simple-git";
-import type { Patch } from "@chorus/core";
+import type { Patch } from "@delightfulchorus/core";
 import {
   cloneRegistry,
   listPatches,

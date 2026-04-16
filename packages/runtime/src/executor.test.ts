@@ -4,7 +4,7 @@ import type {
   IntegrationModule,
   OperationContext,
   Workflow,
-} from "@chorus/core";
+} from "@delightfulchorus/core";
 import { openDatabase } from "./db.js";
 import { RunQueue } from "./queue.js";
 import { Executor, type IntegrationLoader } from "./executor.js";

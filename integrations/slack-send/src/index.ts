@@ -1,5 +1,5 @@
 /**
- * @chorus/integration-slack-send
+ * @delightfulchorus/integration-slack-send
  *
  * Reference integration: send a message to Slack via chat.postMessage.
  * Tracks the worked example in ARCHITECTURE.md §8.2.
@@ -25,7 +25,7 @@ import {
   type IntegrationModule,
   type OperationContext,
   type OperationHandler,
-} from "@chorus/core";
+} from "@delightfulchorus/core";
 import { z } from "zod";
 
 // ── Schemas ─────────────────────────────────────────────────────────────────

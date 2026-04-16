@@ -5,8 +5,8 @@ import type {
   IntegrationModule,
   OperationContext,
   CredentialTestResult,
-} from "@chorus/core";
-import { resolveCredentialType } from "@chorus/core";
+} from "@delightfulchorus/core";
+import { resolveCredentialType } from "@delightfulchorus/core";
 import type { CredentialRow, DatabaseType } from "./db.js";
 import { QueryHelpers } from "./db.js";
 import {

@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { ErrorSignature } from "@chorus/core";
+import type { ErrorSignature } from "@delightfulchorus/core";
 import { assembleRepairContext } from "../src/context.js";
 
 function makeSig(): ErrorSignature {
@@ -44,7 +44,7 @@ describe("assembleRepairContext", () => {
     await writeFile(
       join(integrationDir, "package.json"),
       JSON.stringify({
-        name: "@chorus/integration-slack-send",
+        name: "@delightfulchorus/integration-slack-send",
         version: "1.4.2",
         description: "Slack integration",
       }),
@@ -95,7 +95,7 @@ describe("assembleRepairContext", () => {
     });
 
     expect(ctx.error.integration).toBe("slack-send");
-    expect(ctx.manifest?.name).toBe("@chorus/integration-slack-send");
+    expect(ctx.manifest?.name).toBe("@delightfulchorus/integration-slack-send");
     expect(ctx.manifest?.version).toBe("1.4.2");
     expect(ctx.integrationDir).toBe(integrationDir);
     const paths = ctx.sourceFiles.map((f) => f.relPath).sort();

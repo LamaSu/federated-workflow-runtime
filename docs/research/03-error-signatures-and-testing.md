@@ -450,7 +450,7 @@ export const StackFrameSchema = z.object({
   function: z.string().optional(),
   // Line number — KEPT (it's stable across deploys of same code)
   line: z.number().optional(),
-  // Module name (e.g. "@chorus/integration-stripe/src/charge.ts")
+  // Module name (e.g. "@delightfulchorus/integration-stripe/src/charge.ts")
   module: z.string().optional(),
   // Whether this frame is in our code vs. library/framework
   inApp: z.boolean().default(false),
@@ -841,11 +841,11 @@ test("signature discriminates real differences", () => {
 
 | Module | Purpose | Key exports |
 |--------|---------|-------------|
-| `@chorus/signature` | Error fingerprinting | `ErrorSignatureSchema`, `computeSignatureHash`, `normalizeContextLine`, `normalizeFilename` |
-| `@chorus/redact` | PII / secret redaction | `SafeEventSchema`, `redactString`, `extractShape`, `pseudonymize` |
-| `@chorus/cassette` | HTTP cassette record/replay | `CassetteSchema`, `record`, `replay`, `match` |
-| `@chorus/validate` | Patch validation | `validateAgainstCassette`, `snapshotDiff`, `differentialTest` |
-| `@chorus/sdk` | Client SDK | `beforeEmit` hook, schema-gated emission |
+| `@delightfulchorus/signature` | Error fingerprinting | `ErrorSignatureSchema`, `computeSignatureHash`, `normalizeContextLine`, `normalizeFilename` |
+| `@delightfulchorus/redact` | PII / secret redaction | `SafeEventSchema`, `redactString`, `extractShape`, `pseudonymize` |
+| `@delightfulchorus/cassette` | HTTP cassette record/replay | `CassetteSchema`, `record`, `replay`, `match` |
+| `@delightfulchorus/validate` | Patch validation | `validateAgainstCassette`, `snapshotDiff`, `differentialTest` |
+| `@delightfulchorus/sdk` | Client SDK | `beforeEmit` hook, schema-gated emission |
 
 ---
 

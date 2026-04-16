@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { randomBytes } from "node:crypto";
-import type { IntegrationManifest } from "@chorus/core";
+import type { IntegrationManifest } from "@delightfulchorus/core";
 import { openDatabase } from "./db.js";
 import { QueryHelpers } from "./db.js";
 import { encryptCredential, decryptCredential } from "./credentials.js";

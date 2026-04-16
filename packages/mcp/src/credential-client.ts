@@ -1,12 +1,12 @@
 /**
- * @chorus/mcp — credential-client
+ * @delightfulchorus/mcp — credential-client
  *
  * HTTP-based `CredentialService` implementation for STANDALONE MCP
  * scaffolds. Generated `index.js` files can use this to delegate
  * credential management to a live Chorus runtime elsewhere on the
  * network (typically http://127.0.0.1:3000).
  *
- *   import { HttpCredentialServiceClient } from "@chorus/mcp/credential-client";
+ *   import { HttpCredentialServiceClient } from "@delightfulchorus/mcp/credential-client";
  *
  *   const credentialService = new HttpCredentialServiceClient({
  *     baseUrl: process.env.CHORUS_RUNTIME_URL ?? "http://127.0.0.1:3000",

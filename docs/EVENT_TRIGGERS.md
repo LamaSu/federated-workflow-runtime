@@ -113,7 +113,7 @@ event wakes the run with the correct payload.
 ## Schema surface
 
 All shapes live in `packages/core/src/event-schemas.ts`, re-exported
-from `@chorus/core`:
+from `@delightfulchorus/core`:
 
 ```typescript
 export const EventSchema = z.object({

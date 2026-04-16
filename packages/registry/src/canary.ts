@@ -20,7 +20,7 @@
  */
 
 import { createHash } from "node:crypto";
-import type { Patch } from "@chorus/core";
+import type { Patch } from "@delightfulchorus/core";
 
 export type CanaryStage = Patch["metadata"]["canaryStage"];
 

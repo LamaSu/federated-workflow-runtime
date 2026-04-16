@@ -1,12 +1,12 @@
 /**
- * @chorus/reporter — failure capture + PII redaction + registry submission.
+ * @delightfulchorus/reporter — failure capture + PII redaction + registry submission.
  *
  * See `docs/ARCHITECTURE.md` §6 for the design.
  *
  * Typical usage:
  *
  * ```ts
- * import { reportFailure, computeReporterId } from "@chorus/reporter";
+ * import { reportFailure, computeReporterId } from "@delightfulchorus/reporter";
  *
  * const reporterId = computeReporterId(project.id, localSalt);
  *

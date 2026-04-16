@@ -1,5 +1,5 @@
 /**
- * @chorus/mcp — MCP server runtime
+ * @delightfulchorus/mcp — MCP server runtime
  *
  * Given an IntegrationModule, wire an MCP server that exposes its operations
  * and credential-control surface as MCP tools. The shape of the tools is
@@ -22,7 +22,7 @@
  *     §7.3 "Explicit non-contract": if `test.viaOperation` points to a
  *     non-idempotent op, we refuse with a descriptive error.
  */
-import type { IntegrationModule } from "@chorus/core";
+import type { IntegrationModule } from "@delightfulchorus/core";
 import type {
   McpTool,
   ChorusToolBinding,
@@ -35,7 +35,7 @@ import { manifestToMcpTools } from "./tool-mapping.js";
 
 /**
  * A minimal credential-service contract. Real runtime implementations live in
- * `@chorus/runtime`; tests pass an in-memory stub. The MCP server never
+ * `@delightfulchorus/runtime`; tests pass an in-memory stub. The MCP server never
  * touches encrypted blobs directly — all it does is ask the service.
  *
  * All methods return JSON-serializable results (no Buffer, no Date — ISO

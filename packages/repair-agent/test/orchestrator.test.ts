@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ErrorSignature } from "@chorus/core";
+import type { ErrorSignature } from "@delightfulchorus/core";
 import { attemptRepair } from "../src/orchestrator.js";
 import type {
   PatchProposal,

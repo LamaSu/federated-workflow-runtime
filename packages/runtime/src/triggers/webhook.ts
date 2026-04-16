@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import type { WebhookTrigger } from "@chorus/core";
+import type { WebhookTrigger } from "@delightfulchorus/core";
 import type { RunQueue } from "../queue.js";
 
 /**

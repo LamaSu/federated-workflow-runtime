@@ -1,5 +1,5 @@
 {
-  "name": "@chorus/integration-slack-send",
+  "name": "@delightfulchorus/integration-slack-send",
   "version": "0.1.0",
   "description": "Slack send-message integration — reference example for the integration SDK",
   "type": "module",
@@ -37,7 +37,7 @@
     "prepublishOnly": "npm run build && npm test"
   },
   "dependencies": {
-    "@chorus/core": "*",
+    "@delightfulchorus/core": "*",
     "zod": "^3.23.0"
   }
 }

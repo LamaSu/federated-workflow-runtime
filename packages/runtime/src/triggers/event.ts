@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { EventTrigger } from "@chorus/core";
+import type { EventTrigger } from "@delightfulchorus/core";
 import type { RunQueue } from "../queue.js";
 import type { DatabaseType, EventRow, WaitingStepRow } from "../db.js";
 import { QueryHelpers } from "../db.js";

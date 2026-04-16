@@ -80,17 +80,17 @@ Early. See `docs/ARCHITECTURE.md` for the full design and `docs/ROADMAP.md` for 
 ## Install
 
 ```bash
-npx @chorus/cli init
+npx @delightfulchorus/cli init
 ```
 
-This scaffolds a `./chorus/` directory in the current folder, generates an Ed25519 keypair + AES encryption key, and creates an example workflow. Then `npx @chorus/cli run` starts the runtime.
+This scaffolds a `./chorus/` directory in the current folder, generates an Ed25519 keypair + AES encryption key, and creates an example workflow. Then `npx @delightfulchorus/cli run` starts the runtime.
 
 > Note: the npm packages publish at `v0.1.0`. Until then, clone this repo and run `npm install && npm run build && node packages/cli/dist/cli.js init`. See [QUICKSTART.md](QUICKSTART.md) for the local-dev flow.
 
 For team installs and pinned versions:
 
 ```bash
-npm install --save-dev @chorus/cli
+npm install --save-dev @delightfulchorus/cli
 npx chorus init
 ```
 

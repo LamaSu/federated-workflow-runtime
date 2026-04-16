@@ -12,7 +12,7 @@ server** with one CLI command. The generated server lets agents — Claude
 Desktop, Cursor, Zed, or any MCP-compatible client — call integration
 operations directly as tools, no workflow glue required.
 
-`@chorus/mcp` is the library that turns `IntegrationManifest` → MCP tool array.
+`@delightfulchorus/mcp` is the library that turns `IntegrationManifest` → MCP tool array.
 `chorus mcp` is the CLI surface: `list`, `generate`, `serve`, `config`.
 
 ## Why auto-MCP?
@@ -152,14 +152,14 @@ agent and signed into a registry patch that helps workflow users too.
 
 ### `chorus mcp list [--json]`
 
-Lists installed integrations (packages under `node_modules/@chorus/integration-`)
+Lists installed integrations (packages under `node_modules/@delightfulchorus/integration-`)
 and their MCP tool count. `--json` emits a machine-readable array.
 
 ### `chorus mcp generate <integration> [--out <dir>]`
 
 Writes a scaffold to `mcp-servers/chorus-<integration>/`:
 
-- `package.json` — declares `@chorus/mcp` + `@chorus/integration-<name>` as deps
+- `package.json` — declares `@delightfulchorus/mcp` + `@delightfulchorus/integration-<name>` as deps
 - `index.js` — ESM entrypoint, calls `serveIntegration({ integration })`
 - `README.md` — Claude Desktop / Cursor / Zed registration instructions
 
@@ -208,7 +208,7 @@ through the same service layer.
 
 ## Integration with credentials-oscar's catalog
 
-`@chorus/mcp` imports from `@chorus/core` directly:
+`@delightfulchorus/mcp` imports from `@delightfulchorus/core` directly:
 
 - `CredentialTypeDefinition`, `CredentialField`, `CredentialTestResult` —
   the canonical Zod-inferred types from
@@ -241,10 +241,10 @@ import {
   dispatchTool,           // exercise dispatch without MCP transport (tests)
   serveIntegration,       // start server on stdio (blocks)
   generateMcpServer,      // emit scaffold to disk
-} from "@chorus/mcp";
+} from "@delightfulchorus/mcp";
 
 // Example: inspect tool shape
-import integration from "@chorus/integration-slack-send";
+import integration from "@delightfulchorus/integration-slack-send";
 const tools = manifestToMcpTools(integration.manifest);
 console.log(tools.map((t) => t.name));
 // [

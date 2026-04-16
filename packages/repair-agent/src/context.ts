@@ -1,6 +1,6 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
-import type { ErrorSignature, IntegrationManifest } from "@chorus/core";
+import type { ErrorSignature, IntegrationManifest } from "@delightfulchorus/core";
 import type { Cassette, RepairContext, SourceFile } from "./types.js";
 
 const SOURCE_EXTS = new Set([".ts", ".tsx", ".js", ".mjs", ".cjs", ".json"]);
@@ -127,7 +127,7 @@ async function walk(root: string, dir: string, out: string[]): Promise<void> {
 async function loadManifest(integrationDir: string): Promise<IntegrationManifest | null> {
   // Try Chorus integration manifest pattern: package.json + src/index.ts exports
   // For repair purposes we read package.json metadata; the integration's defineIntegration()
-  // call lives in source but parsing it fully is a job for @chorus/sdk — out of scope here.
+  // call lives in source but parsing it fully is a job for @delightfulchorus/sdk — out of scope here.
   const candidate = join(integrationDir, "package.json");
   try {
     const raw = await readFile(candidate, "utf8");

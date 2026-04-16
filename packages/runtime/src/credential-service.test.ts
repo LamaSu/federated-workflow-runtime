@@ -5,7 +5,7 @@ import type {
   IntegrationManifest,
   IntegrationModule,
   OperationContext,
-} from "@chorus/core";
+} from "@delightfulchorus/core";
 import { openDatabase, createHelpers, type DatabaseType } from "./db.js";
 import { encryptCredential } from "./credentials.js";
 import { RuntimeCredentialService } from "./credential-service.js";

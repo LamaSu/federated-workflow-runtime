@@ -23,7 +23,7 @@ with durable replay, and npm publication scaffolding.
 
 ### Added
 
-#### Workflow runtime (`@chorus/runtime`)
+#### Workflow runtime (`@delightfulchorus/runtime`)
 
 - SQLite-backed workflow execution engine with replay-based durable execution
   (Inngest-pattern); completed steps never re-execute after a process restart
@@ -43,7 +43,7 @@ with durable replay, and npm publication scaffolding.
 - Write API: `POST /api/events` (event firing), and after wire-romeo's pass
   also OAuth callback + write-side credential CRUD
 
-#### Typed credential catalog (`@chorus/core` + `@chorus/runtime`)
+#### Typed credential catalog (`@delightfulchorus/core` + `@delightfulchorus/runtime`)
 
 - New `CredentialTypeDefinition` schema declares per-integration credential
   types with fields, OAuth flow metadata, deep-link URLs to creation pages,
@@ -59,7 +59,7 @@ with durable replay, and npm publication scaffolding.
   rotation deadline for non-OAuth tokens (PATs, API keys); idempotent across
   ticks via `<id>@<updated_at>` cache
 
-#### Signed patch registry (`@chorus/registry`)
+#### Signed patch registry (`@delightfulchorus/registry`)
 
 - Ed25519 sign/verify (primary, ships in MVP)
 - Sigstore keyless signing path documented; CI workflow lives in
@@ -71,7 +71,7 @@ with durable replay, and npm publication scaffolding.
 - Revocation list polled every 5 min (signed JSON, CDN-cached for 60s)
 - `git-store` reads/writes patches against a Homebrew-style git registry
 
-#### Failure reporter (`@chorus/reporter`)
+#### Failure reporter (`@delightfulchorus/reporter`)
 
 - Stable error signature extraction (Sentry-style fingerprinting + stack
   pattern + HTTP status + integration version)
@@ -83,7 +83,7 @@ with durable replay, and npm publication scaffolding.
 - Config fingerprinting (shape, not values); cassette index by `signatureHash`
   for O(1) lookup
 
-#### Repair agent (`@chorus/repair-agent`)
+#### Repair agent (`@delightfulchorus/repair-agent`)
 
 - Claude-powered patch proposer with strict unified-diff parsing (8 dedicated
   rejection tests for prose contamination)
@@ -94,7 +94,7 @@ with durable replay, and npm publication scaffolding.
 - Stub mode when `ANTHROPIC_API_KEY` unset (lets you test without burning
   tokens)
 
-#### Auto-MCP per integration (`@chorus/mcp`)
+#### Auto-MCP per integration (`@delightfulchorus/mcp`)
 
 - `@modelcontextprotocol/sdk@1.29.0` low-level Server with stdio transport
 - `chorus mcp <list | generate | serve | config>` CLI
@@ -130,7 +130,7 @@ with durable replay, and npm publication scaffolding.
   (5-min revoke), maintainer rotation, cost model (free at 10k users on
   Cloudflare R2)
 
-#### Reference integrations (`@chorus/integration-*`)
+#### Reference integrations (`@delightfulchorus/integration-*`)
 
 - `http-generic` — credential-less HTTP client with timeout + cassette
   recording; 16 tests
@@ -138,7 +138,7 @@ with durable replay, and npm publication scaffolding.
   `slackUserToken` credential type with `test()` calling `auth.test`;
   proper rate-limit + auth error mapping; 27 tests
 
-#### CLI (`@chorus/cli`)
+#### CLI (`@delightfulchorus/cli`)
 
 - `chorus init` — scaffolds project + generates encryption key + Ed25519
   keypair
@@ -194,7 +194,7 @@ with durable replay, and npm publication scaffolding.
 ### Known limitations & deferred work
 
 - First publish must be **manual** (`npm publish --access public --provenance`
-  for each `@chorus/*` package). npm Trusted
+  for each `@delightfulchorus/*` package). npm Trusted
   Publisher binding requires the package name to exist before configuration.
   Once `0.1.0` is on the registry, all subsequent versions ship via CI.
 - Fine-grained canary percentages (1/2/5/10/20/50) are coarse-binned to

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { AddressInfo } from "node:net";
-import type { RedactedErrorReport } from "@chorus/core";
+import type { RedactedErrorReport } from "@delightfulchorus/core";
 import { RateLimiter, submitReport } from "./submit.js";
 
 // ────────────────────────────────────────────────────────────────────────────

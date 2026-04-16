@@ -58,7 +58,7 @@ export interface ReportSummary {
 
 /**
  * Build a report summary. Opens the SQLite DB via better-sqlite3 directly —
- * we do NOT go through @chorus/runtime to avoid coupling.
+ * we do NOT go through @delightfulchorus/runtime to avoid coupling.
  */
 export async function buildReport(opts: ReportOptions = {}): Promise<ReportSummary> {
   const cwd = opts.cwd ?? process.cwd();

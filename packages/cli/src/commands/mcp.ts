@@ -20,13 +20,13 @@
  *     `chorus mcp config slack-send | jq`.
  *
  * All subcommands share the `resolveIntegration()` loader, which walks
- * the @chorus/integration-* workspace dependency set to find the user's
+ * the @delightfulchorus/integration-* workspace dependency set to find the user's
  * installed integration.
  */
 import path from "node:path";
 import { readFile, stat, readdir } from "node:fs/promises";
 import pc from "picocolors";
-import type { IntegrationModule } from "@chorus/core";
+import type { IntegrationModule } from "@delightfulchorus/core";
 
 export interface McpListOptions {
   cwd?: string;
@@ -68,7 +68,7 @@ export async function mcpList(opts: McpListOptions = {}): Promise<number> {
       integrations.map(async (i) => {
         try {
           const mod = await loadIntegration(cwd, i.name);
-          const { manifestToMcpTools } = await import("@chorus/mcp");
+          const { manifestToMcpTools } = await import("@delightfulchorus/mcp");
           const tools = manifestToMcpTools(mod.manifest);
           return {
             integration: i.name,
@@ -94,7 +94,7 @@ export async function mcpList(opts: McpListOptions = {}): Promise<number> {
   if (integrations.length === 0) {
     out.write(
       paint("No integrations installed.", "dim", color_on) +
-        `\n  Install one with: npm i @chorus/integration-slack-send\n`,
+        `\n  Install one with: npm i @delightfulchorus/integration-slack-send\n`,
     );
     return 0;
   }
@@ -103,7 +103,7 @@ export async function mcpList(opts: McpListOptions = {}): Promise<number> {
   for (const i of integrations) {
     try {
       const mod = await loadIntegration(cwd, i.name);
-      const { manifestToMcpTools } = await import("@chorus/mcp");
+      const { manifestToMcpTools } = await import("@delightfulchorus/mcp");
       const tools = manifestToMcpTools(mod.manifest);
       const opCount = mod.manifest.operations.length;
       const credCount = tools.length - opCount;
@@ -150,7 +150,7 @@ export async function mcpGenerate(opts: McpGenerateOptions): Promise<number> {
 
   const outDir =
     opts.out ?? path.join(cwd, "mcp-servers", `chorus-${opts.integration}`);
-  const { generateMcpServer } = await import("@chorus/mcp");
+  const { generateMcpServer } = await import("@delightfulchorus/mcp");
   const result = await generateMcpServer({
     integration: opts.integration,
     outDir,
@@ -189,7 +189,7 @@ export async function mcpServe(opts: McpServeOptions): Promise<number> {
     );
     return 2;
   }
-  const { serveIntegration } = await import("@chorus/mcp");
+  const { serveIntegration } = await import("@delightfulchorus/mcp");
   // Write a single startup line to stderr so the MCP client's log shows
   // that we connected. Stdout is reserved for the JSON-RPC stream.
   process.stderr.write(
@@ -213,7 +213,7 @@ export async function mcpConfig(opts: McpConfigOptions): Promise<number> {
   const out = opts.stdout ?? process.stdout;
   const outDir =
     opts.out ?? path.join(cwd, "mcp-servers", `chorus-${opts.integration}`);
-  const { generateMcpServer } = await import("@chorus/mcp");
+  const { generateMcpServer } = await import("@delightfulchorus/mcp");
   // dryRun so we never write files — we only want the snippet.
   const result = await generateMcpServer({
     integration: opts.integration,
@@ -229,14 +229,14 @@ export async function mcpConfig(opts: McpConfigOptions): Promise<number> {
 interface InstalledIntegration {
   /** Short name: "slack-send", "http-generic". Used in tool names. */
   name: string;
-  /** Full npm package name: "@chorus/integration-slack-send". */
+  /** Full npm package name: "@delightfulchorus/integration-slack-send". */
   packageName: string;
 }
 
 const INTEGRATION_PREFIX = "integration-";
 
 /**
- * Find installed Chorus integrations by walking `node_modules/@chorus/` and
+ * Find installed Chorus integrations by walking `node_modules/@delightfulchorus/` and
  * filtering for packages whose short name starts with `integration-`.
  * This mirrors the pattern the runtime uses at cold-start — keep in sync.
  * Monorepo roots are preferred (walks up until it finds a node_modules with
@@ -288,14 +288,14 @@ async function findIntegrationsRoot(cwd: string): Promise<string | null> {
 
 /**
  * Load an installed integration's IntegrationModule. Tries, in order:
- *   1. `@chorus/integration-<name>` — the canonical shape
+ *   1. `@delightfulchorus/integration-<name>` — the canonical shape
  *   2. `chorus-integration-<name>` — community convention
  *
  * Resolution strategy: walk up from `cwd` to find a `node_modules/<spec>/`
  * with a readable package.json. This works for workspace installs
  * (where the integration is a sibling workspace not declared in the root
  * package.json's deps), for deep installs, AND for the canonical
- * "user's project npm i @chorus/integration-*" case. `createRequire`
+ * "user's project npm i @delightfulchorus/integration-*" case. `createRequire`
  * would fail the first case because npm workspaces don't hoist sibling
  * packages into the parent's dependency graph.
  */
@@ -304,7 +304,7 @@ async function loadIntegration(
   name: string,
 ): Promise<IntegrationModule> {
   const candidates = [
-    `@chorus/integration-${name}`,
+    `@delightfulchorus/integration-${name}`,
     `chorus-integration-${name}`,
   ];
   let lastErr: unknown;

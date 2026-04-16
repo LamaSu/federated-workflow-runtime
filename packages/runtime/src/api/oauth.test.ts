@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import Fastify from "fastify";
 import { randomBytes } from "node:crypto";
-import type { IntegrationManifest } from "@chorus/core";
+import type { IntegrationManifest } from "@delightfulchorus/core";
 import { openDatabase, createHelpers } from "../db.js";
 import { RunQueue } from "../queue.js";
 import { EventDispatcher } from "../triggers/event.js";

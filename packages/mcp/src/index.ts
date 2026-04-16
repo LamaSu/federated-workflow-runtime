@@ -1,5 +1,5 @@
 /**
- * @chorus/mcp — public API
+ * @delightfulchorus/mcp — public API
  *
  * Three entry points:
  *

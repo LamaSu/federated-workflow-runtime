@@ -7,8 +7,8 @@ import type {
   OperationHandler,
   WaitForEventCall,
   Workflow,
-} from "@chorus/core";
-import { WaitForEventCallSchema } from "@chorus/core";
+} from "@delightfulchorus/core";
+import { WaitForEventCallSchema } from "@delightfulchorus/core";
 import type { DatabaseType, StepRow } from "./db.js";
 import { QueryHelpers } from "./db.js";
 import { TIMEOUT_EVENT_ID } from "./triggers/event.js";

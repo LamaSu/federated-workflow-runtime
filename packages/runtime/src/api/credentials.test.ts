@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import Fastify from "fastify";
 import { randomBytes } from "node:crypto";
-import type { IntegrationManifest } from "@chorus/core";
+import type { IntegrationManifest } from "@delightfulchorus/core";
 import { openDatabase } from "../db.js";
 import { RuntimeCredentialService } from "../credential-service.js";
 import { registerApiRoutes } from "./index.js";

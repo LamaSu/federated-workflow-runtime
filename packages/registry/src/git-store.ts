@@ -20,7 +20,7 @@
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { simpleGit, type SimpleGit } from "simple-git";
-import type { Patch, PatchMetadata } from "@chorus/core";
+import type { Patch, PatchMetadata } from "@delightfulchorus/core";
 import { manifestFilename, validateManifest } from "./manifest.js";
 
 export interface GitStoreOptions {

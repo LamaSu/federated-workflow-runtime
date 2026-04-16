@@ -5,7 +5,7 @@ import {
   fingerprintStack,
   hashSignature,
   stabilizeMessage,
-} from "@chorus/core";
+} from "@delightfulchorus/core";
 
 /**
  * Context supplied by the caller when extracting a signature from an error.
@@ -75,7 +75,7 @@ export function fingerprintApiVersion(
 /**
  * Build a normalized ErrorSignature describing `err` in `ctx`.
  *
- * Does NOT hash or submit; pair with `hashSignature` (from @chorus/core) to
+ * Does NOT hash or submit; pair with `hashSignature` (from @delightfulchorus/core) to
  * obtain the 64-char signature hash used as the registry key.
  */
 export function extractSignature(
@@ -141,7 +141,7 @@ export function extractSignature(
 /**
  * Compute the registry key (64-char hex SHA-256) for a signature.
  *
- * Re-exported from @chorus/core for convenience: the reporter pipeline needs
+ * Re-exported from @delightfulchorus/core for convenience: the reporter pipeline needs
  * both the signature object and its hash, so keep them reachable from the
  * same module.
  */

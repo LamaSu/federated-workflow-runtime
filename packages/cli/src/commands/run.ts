@@ -104,7 +104,7 @@ export async function runRun(opts: RunOptions = {}): Promise<number> {
   const runtime = await tryImportRuntime();
   if (!runtime) {
     p(
-      `${pc.yellow("!")} @chorus/runtime is not built yet — cannot start the executor.\n` +
+      `${pc.yellow("!")} @delightfulchorus/runtime is not built yet — cannot start the executor.\n` +
         `   Once the runtime package ships a dist/, re-run this command.\n`,
     );
     return 2;
@@ -138,7 +138,7 @@ export async function runRun(opts: RunOptions = {}): Promise<number> {
         signal: abort.signal,
       });
     } else {
-      p(`${pc.red("✗")} @chorus/runtime exports neither startServer nor startRuntime\n`);
+      p(`${pc.red("✗")} @delightfulchorus/runtime exports neither startServer nor startRuntime\n`);
       return 3;
     }
   } finally {
@@ -166,7 +166,7 @@ interface RuntimeModule {
 async function tryImportRuntime(): Promise<RuntimeModule | null> {
   const dynamicImport = new Function("s", "return import(s)") as (s: string) => Promise<unknown>;
   try {
-    return (await dynamicImport("@chorus/runtime")) as RuntimeModule;
+    return (await dynamicImport("@delightfulchorus/runtime")) as RuntimeModule;
   } catch {
     return null;
   }

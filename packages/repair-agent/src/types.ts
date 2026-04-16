@@ -1,4 +1,4 @@
-import type { ErrorSignature, IntegrationManifest } from "@chorus/core";
+import type { ErrorSignature, IntegrationManifest } from "@delightfulchorus/core";
 
 /**
  * A recorded HTTP interaction, indexed by error signature hash.
