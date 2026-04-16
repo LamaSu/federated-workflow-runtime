@@ -80,19 +80,26 @@ Early. See `docs/ARCHITECTURE.md` for the full design and `docs/ROADMAP.md` for 
 ## Install
 
 ```bash
+npm install -g @delightfulchorus/cli
+chorus init
+```
+
+That's it. `chorus init` scaffolds a `./chorus/` directory in the current folder, generates an Ed25519 keypair + AES encryption key, and creates an example workflow. Then `chorus run` starts the runtime.
+
+### Other install shapes
+
+**Zero-install one-liner** — runs once from npm's cache, nothing left on disk:
+```bash
 npx @delightfulchorus/cli init
 ```
 
-This scaffolds a `./chorus/` directory in the current folder, generates an Ed25519 keypair + AES encryption key, and creates an example workflow. Then `npx @delightfulchorus/cli run` starts the runtime.
-
-> Note: the npm packages publish at `v0.1.0`. Until then, clone this repo and run `npm install && npm run build && node packages/cli/dist/cli.js init`. See [QUICKSTART.md](QUICKSTART.md) for the local-dev flow.
-
-For team installs and pinned versions:
-
+**Per-project (pinned version, recommended for teams)**:
 ```bash
 npm install --save-dev @delightfulchorus/cli
 npx chorus init
 ```
+
+The CLI binary is always `chorus`. The scoped npm name (`@delightfulchorus/cli`) is only the package identifier — you never type it after a global install.
 
 ## Running the federation side
 
