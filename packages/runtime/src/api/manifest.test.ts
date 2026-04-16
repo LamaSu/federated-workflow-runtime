@@ -20,7 +20,9 @@ describe("GET /api/manifest", () => {
     expect(res.headers["cache-control"]).toBe("no-store");
     const body = res.json() as ReturnType<typeof buildManifest>;
     expect(body.chorusApiVersion).toBe("1");
-    expect(body.readOnly).toBe(true);
+    // readOnly is now false: Chorus has write endpoints (events.emit,
+    // credentials.configure, oauth.callback). See §4.8.
+    expect(body.readOnly).toBe(false);
     expect(body.authMode).toBe("localhost");
     expect(Array.isArray(body.endpoints)).toBe(true);
     expect(body.endpoints.length).toBeGreaterThanOrEqual(9);

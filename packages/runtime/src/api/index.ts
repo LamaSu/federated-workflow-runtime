@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { DatabaseType } from "../db.js";
 import type { EventDispatcher } from "../triggers/event.js";
+import type { RuntimeCredentialService } from "../credential-service.js";
 import { registerManifestRoute, API_VERSION } from "./manifest.js";
 import { registerWorkflowsRoutes } from "./workflows.js";
 import { registerRunsRoutes } from "./runs.js";
@@ -8,6 +9,8 @@ import { registerErrorsRoutes } from "./errors.js";
 import { registerPatchesRoutes } from "./patches.js";
 import { registerIntegrationsRoutes } from "./integrations.js";
 import { registerEventsRoutes } from "./events.js";
+import { registerOAuthRoutes } from "./oauth.js";
+import { registerCredentialsRoutes } from "./credentials.js";
 
 /**
  * Mount the read-only JSON API under /api/*.
@@ -36,6 +39,18 @@ export interface RegisterApiOptions {
    * events routes are skipped (read-only clients don't need them).
    */
   eventDispatcher?: EventDispatcher;
+  /**
+   * Credential service — when wired, enables the write-side credential
+   * endpoints (POST /api/credentials, /test, /authenticate) and the OAuth
+   * callback (GET /api/oauth/callback). When omitted, those routes do
+   * not mount.
+   */
+  credentialService?: RuntimeCredentialService;
+  /**
+   * Optional fetch override — passed into the OAuth callback's token
+   * exchange for tests.
+   */
+  fetchFn?: typeof fetch;
 }
 
 export function registerApiRoutes(
@@ -82,6 +97,16 @@ export function registerApiRoutes(
   registerIntegrationsRoutes(app, db);
   if (opts.eventDispatcher) {
     registerEventsRoutes(app, db, { dispatcher: opts.eventDispatcher });
+  }
+  if (opts.credentialService) {
+    registerCredentialsRoutes(app, {
+      credentialService: opts.credentialService,
+    });
+    registerOAuthRoutes(app, {
+      credentialService: opts.credentialService,
+      eventDispatcher: opts.eventDispatcher,
+      fetchFn: opts.fetchFn,
+    });
   }
 }
 

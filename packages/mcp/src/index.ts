@@ -53,3 +53,8 @@ export {
   type GenerateMcpServerOptions,
   type GenerateMcpServerResult,
 } from "./generate.js";
+
+export {
+  HttpCredentialServiceClient,
+  type HttpCredentialServiceClientOptions,
+} from "./credential-client.js";

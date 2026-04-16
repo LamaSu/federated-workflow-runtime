@@ -29,7 +29,12 @@ export interface ManifestEndpoint {
 export interface ApiManifest {
   chorusApiVersion: string;
   generatedAt: string;
-  readOnly: true;
+  /**
+   * Whether the API surface is purely read-only. Historically `true`; now
+   * `false` when credential write endpoints (configure/authenticate/test)
+   * and the events emit endpoint are mounted.
+   */
+  readOnly: boolean;
   authMode: "localhost" | "bearer";
   endpoints: ManifestEndpoint[];
   dataModel: Record<string, string>;
@@ -53,7 +58,7 @@ export function buildManifest(authMode: "localhost" | "bearer"): ApiManifest {
   return {
     chorusApiVersion: API_VERSION,
     generatedAt: new Date().toISOString(),
-    readOnly: true,
+    readOnly: false,
     authMode,
     endpoints: [
       {
@@ -148,6 +153,14 @@ export function buildManifest(authMode: "localhost" | "bearer"): ApiManifest {
           "Runs currently parked on step.waitForEvent. Agents render this as a 'waiting on…' list.",
         responseShape: "{ waiting: WaitingStepSummary[] }",
       },
+      {
+        path: "/api/credentials",
+        method: "GET",
+        description:
+          "List stored credentials for an integration. Never returns secrets.",
+        query: { integration: "required integration name" },
+        responseShape: "{ credentials: CredentialSummary[] }",
+      },
     ],
     dataModel: {
       WorkflowSummary:
@@ -190,6 +203,11 @@ export function buildManifest(authMode: "localhost" | "bearer"): ApiManifest {
       "events.emit",
       "events.list",
       "events.waiting.list",
+      "credentials.list",
+      "credentials.configure",
+      "credentials.test",
+      "credentials.authenticate",
+      "oauth.callback",
     ],
     conventions: {
       timestamps: "ISO 8601 UTC (e.g. 2026-04-14T12:34:56.789Z). Treat null as 'not applicable yet'.",
