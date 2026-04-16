@@ -1,13 +1,16 @@
 {
   "name": "@delightfulchorus/cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Chorus CLI — chorus init, chorus run, chorus report",
   "type": "module",
   "main": "./dist/index.js",
   "bin": {
     "chorus": "./dist/cli.js"
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "keywords": [
     "chorus",
     "workflow",

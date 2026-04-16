@@ -1,6 +1,6 @@
 {
   "name": "@delightfulchorus/runtime",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Workflow execution engine: cron, webhooks, retries, SQLite state",
   "type": "module",
   "main": "./dist/index.js",

@@ -1,11 +1,14 @@
 {
   "name": "@delightfulchorus/integration-slack-send",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Slack send-message integration — reference example for the integration SDK",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "keywords": [
     "chorus",
     "chorus-integration",

@@ -1,11 +1,14 @@
 {
   "name": "@delightfulchorus/repair-agent",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Claude-powered repair agent — proposes integration patches, validates via snapshots",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "keywords": [
     "chorus",
     "workflow",

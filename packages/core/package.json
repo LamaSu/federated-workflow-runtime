@@ -1,6 +1,6 @@
 {
   "name": "@delightfulchorus/core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Shared types, schemas, and utilities for Chorus",
   "type": "module",
   "main": "./dist/index.js",
@@ -15,7 +15,10 @@
       "types": "./dist/schemas.d.ts"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "keywords": [
     "chorus",
     "workflow",

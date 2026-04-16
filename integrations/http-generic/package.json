@@ -1,11 +1,14 @@
 {
   "name": "@delightfulchorus/integration-http-generic",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Generic HTTP integration — make any HTTP request",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "keywords": [
     "chorus",
     "chorus-integration",
