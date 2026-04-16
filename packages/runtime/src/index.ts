@@ -35,6 +35,13 @@ export {
 } from "./credentials.js";
 
 export {
+  RuntimeCredentialService,
+  type AuthenticateResult,
+  type CredentialSummaryView,
+  type RuntimeCredentialServiceOptions,
+} from "./credential-service.js";
+
+export {
   DEFAULT_VISIBILITY_MS,
   RunQueue,
   type ClaimOptions,
