@@ -10,3 +10,12 @@ build/
 coverage/
 .turbo/
 .next/
+
+# ai/ is orchestration state, not product code
+/ai/supervisor/
+/ai/memory/WORKING_MEMORY.md
+
+# VHS demo outputs — keep .tape sources tracked, artifacts gitignored
+/demos/*.gif
+/demos/*.mp4
+/demos/*.webm
