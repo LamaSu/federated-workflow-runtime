@@ -12,6 +12,7 @@ export {
   type CredentialState,
   type DatabaseType,
   type EventRow,
+  type OAuthPendingRow,
   type RunRow,
   type RunStatus,
   type StepRow,

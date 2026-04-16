@@ -236,6 +236,28 @@ export function runMigrations(db: DatabaseType): void {
     CREATE INDEX IF NOT EXISTS idx_waiting_event_type ON waiting_steps(event_type, resolved_at);
     CREATE INDEX IF NOT EXISTS idx_waiting_expires ON waiting_steps(expires_at, resolved_at);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_waiting_run_step ON waiting_steps(run_id, step_name);
+
+    -- OAuth pending grants (durable state for in-flight OAuth authorize flows).
+    -- Created when __authenticate fires; consumed when GET /api/oauth/callback
+    -- arrives from the provider. See docs/CREDENTIALS_ANALYSIS.md §4.5 + §7.
+    -- The consumed_at column doubles as:
+    --   NULL         → still pending (awaiting callback)
+    --   ISO string   → callback arrived (or was rejected; see consumed_error)
+    CREATE TABLE IF NOT EXISTS oauth_pending (
+      state                TEXT PRIMARY KEY,
+      integration          TEXT NOT NULL,
+      credential_type_name TEXT NOT NULL,
+      credential_name      TEXT NOT NULL,
+      redirect_uri         TEXT NOT NULL,
+      code_verifier        TEXT,                -- PKCE (RFC 7636); NULL if pkce=false
+      created_at           TEXT NOT NULL,
+      expires_at           TEXT NOT NULL,
+      consumed_at          TEXT,                -- NULL = pending
+      consumed_error       TEXT,                -- NULL unless callback failed
+      credential_id        TEXT                 -- populated on successful exchange
+    );
+    CREATE INDEX IF NOT EXISTS idx_oauth_pending_state ON oauth_pending(state, consumed_at);
+    CREATE INDEX IF NOT EXISTS idx_oauth_pending_expires ON oauth_pending(expires_at, consumed_at);
   `);
 
   // Handle migrations from a pre-existing `events` table (old MVP shape:
@@ -395,6 +417,20 @@ export interface WaitingStepRow {
   expires_at: string;
   resolved_at: string | null;
   resolved_event_id: string | null;
+}
+
+export interface OAuthPendingRow {
+  state: string;
+  integration: string;
+  credential_type_name: string;
+  credential_name: string;
+  redirect_uri: string;
+  code_verifier: string | null;
+  created_at: string;
+  expires_at: string;
+  consumed_at: string | null;
+  consumed_error: string | null;
+  credential_id: string | null;
 }
 
 // ── Typed query helpers ─────────────────────────────────────────────────────
@@ -775,6 +811,71 @@ export class QueryHelpers {
          ORDER BY expires_at ASC
          LIMIT ?`,
     ).all(limit) as WaitingStepRow[];
+  }
+
+  // OAuth pending -----------------------------------------------------------
+
+  insertOAuthPending(row: OAuthPendingRow): void {
+    this.get(
+      `INSERT INTO oauth_pending
+         (state, integration, credential_type_name, credential_name,
+          redirect_uri, code_verifier, created_at, expires_at,
+          consumed_at, consumed_error, credential_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      row.state,
+      row.integration,
+      row.credential_type_name,
+      row.credential_name,
+      row.redirect_uri,
+      row.code_verifier,
+      row.created_at,
+      row.expires_at,
+      row.consumed_at,
+      row.consumed_error,
+      row.credential_id,
+    );
+  }
+
+  getOAuthPending(state: string): OAuthPendingRow | undefined {
+    return this.get(
+      `SELECT * FROM oauth_pending WHERE state = ?`,
+    ).get(state) as OAuthPendingRow | undefined;
+  }
+
+  /**
+   * Mark an oauth_pending row as consumed (success or error). The guard
+   * `consumed_at IS NULL` prevents replay — a second callback for the same
+   * state is a no-op, letting the HTTP route detect replay via a fresh
+   * lookup.
+   */
+  markOAuthPendingConsumed(
+    state: string,
+    nowIso: string,
+    args: { credentialId?: string | null; error?: string | null },
+  ): void {
+    this.get(
+      `UPDATE oauth_pending
+          SET consumed_at   = ?,
+              credential_id = ?,
+              consumed_error = ?
+        WHERE state = ? AND consumed_at IS NULL`,
+    ).run(
+      nowIso,
+      args.credentialId ?? null,
+      args.error ?? null,
+      state,
+    );
+  }
+
+  listExpiredOAuthPending(nowIso: string, limit = 100): OAuthPendingRow[] {
+    return this.get(
+      `SELECT * FROM oauth_pending
+         WHERE consumed_at IS NULL
+           AND expires_at <= ?
+         ORDER BY expires_at ASC
+         LIMIT ?`,
+    ).all(nowIso, limit) as OAuthPendingRow[];
   }
 }
 

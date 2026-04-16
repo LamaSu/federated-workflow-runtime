@@ -7,6 +7,7 @@ import {
   runMigrations,
   type CredentialRow,
   type EventRow,
+  type OAuthPendingRow,
   type RunRow,
   type StepRow,
   type WaitingStepRow,
@@ -32,6 +33,7 @@ describe("openDatabase / runMigrations", () => {
       "credentials",
       "error_signatures",
       "events",
+      "oauth_pending",
       "patches",
       "runs",
       "schema_meta",
@@ -679,6 +681,138 @@ describe("credential catalog migration", () => {
     });
     const all = h.listAllCredentials();
     expect(all.map((r) => r.integration)).toEqual(["aaa", "zzz"]);
+    db.close();
+  });
+});
+
+// ── OAuth pending (docs/CREDENTIALS_ANALYSIS.md §4.5 + §7 callback) ──────────
+
+describe("QueryHelpers — oauth_pending", () => {
+  const makePending = (over: Partial<OAuthPendingRow> = {}): OAuthPendingRow => ({
+    state: "state-abc-123",
+    integration: "slack-send",
+    credential_type_name: "slackOAuth2Bot",
+    credential_name: "work",
+    redirect_uri: "http://127.0.0.1:3000/api/oauth/callback",
+    code_verifier: null,
+    created_at: "2026-04-15T00:00:00.000Z",
+    expires_at: "2026-04-15T00:05:00.000Z",
+    consumed_at: null,
+    consumed_error: null,
+    credential_id: null,
+    ...over,
+  });
+
+  it("fresh DB has oauth_pending table and expected indexes", () => {
+    const db = newMemDb();
+    const cols = db
+      .prepare(`PRAGMA table_info(oauth_pending)`)
+      .all()
+      .map((r) => (r as { name: string }).name);
+    expect(cols).toEqual(
+      expect.arrayContaining([
+        "state",
+        "integration",
+        "credential_type_name",
+        "credential_name",
+        "redirect_uri",
+        "code_verifier",
+        "created_at",
+        "expires_at",
+        "consumed_at",
+        "consumed_error",
+        "credential_id",
+      ]),
+    );
+
+    const indexes = db
+      .prepare(
+        `SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='oauth_pending'`,
+      )
+      .all()
+      .map((r) => (r as { name: string }).name);
+    expect(indexes).toContain("idx_oauth_pending_state");
+    expect(indexes).toContain("idx_oauth_pending_expires");
+    db.close();
+  });
+
+  it("inserts + fetches a pending row", () => {
+    const db = newMemDb();
+    const h = createHelpers(db);
+    h.insertOAuthPending(makePending());
+    const got = h.getOAuthPending("state-abc-123");
+    expect(got?.integration).toBe("slack-send");
+    expect(got?.credential_type_name).toBe("slackOAuth2Bot");
+    expect(got?.consumed_at).toBeNull();
+    db.close();
+  });
+
+  it("markOAuthPendingConsumed — success path sets credential_id", () => {
+    const db = newMemDb();
+    const h = createHelpers(db);
+    h.insertOAuthPending(makePending());
+    h.markOAuthPendingConsumed("state-abc-123", "2026-04-15T00:01:00.000Z", {
+      credentialId: "cred-new",
+    });
+    const after = h.getOAuthPending("state-abc-123");
+    expect(after?.consumed_at).toBe("2026-04-15T00:01:00.000Z");
+    expect(after?.credential_id).toBe("cred-new");
+    expect(after?.consumed_error).toBeNull();
+    db.close();
+  });
+
+  it("markOAuthPendingConsumed — error path sets consumed_error", () => {
+    const db = newMemDb();
+    const h = createHelpers(db);
+    h.insertOAuthPending(makePending());
+    h.markOAuthPendingConsumed("state-abc-123", "2026-04-15T00:01:00.000Z", {
+      error: "token endpoint rejected code",
+    });
+    const after = h.getOAuthPending("state-abc-123");
+    expect(after?.consumed_at).toBe("2026-04-15T00:01:00.000Z");
+    expect(after?.consumed_error).toBe("token endpoint rejected code");
+    expect(after?.credential_id).toBeNull();
+    db.close();
+  });
+
+  it("markOAuthPendingConsumed is idempotent — second call is a no-op", () => {
+    const db = newMemDb();
+    const h = createHelpers(db);
+    h.insertOAuthPending(makePending());
+    h.markOAuthPendingConsumed("state-abc-123", "2026-04-15T00:01:00.000Z", {
+      credentialId: "cred-1",
+    });
+    h.markOAuthPendingConsumed("state-abc-123", "2026-04-15T00:02:00.000Z", {
+      credentialId: "cred-2",
+    });
+    const after = h.getOAuthPending("state-abc-123");
+    expect(after?.consumed_at).toBe("2026-04-15T00:01:00.000Z");
+    expect(after?.credential_id).toBe("cred-1");
+    db.close();
+  });
+
+  it("listExpiredOAuthPending returns rows past expires_at, unconsumed only", () => {
+    const db = newMemDb();
+    const h = createHelpers(db);
+    h.insertOAuthPending(makePending({ state: "s-expired", expires_at: "2026-04-15T00:00:30.000Z" }));
+    h.insertOAuthPending(makePending({ state: "s-future", expires_at: "2026-04-15T01:00:00.000Z" }));
+    h.insertOAuthPending(
+      makePending({
+        state: "s-consumed",
+        expires_at: "2026-04-15T00:00:10.000Z",
+        consumed_at: "2026-04-15T00:00:20.000Z",
+      }),
+    );
+    const expired = h.listExpiredOAuthPending("2026-04-15T00:01:00.000Z");
+    expect(expired.map((r) => r.state)).toEqual(["s-expired"]);
+    db.close();
+  });
+
+  it("enforces state PRIMARY KEY — duplicate insert throws", () => {
+    const db = newMemDb();
+    const h = createHelpers(db);
+    h.insertOAuthPending(makePending());
+    expect(() => h.insertOAuthPending(makePending())).toThrow();
     db.close();
   });
 });
