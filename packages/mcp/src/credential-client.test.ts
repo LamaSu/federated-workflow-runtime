@@ -10,7 +10,7 @@ function makeFetch(
   handler: (req: { url: string; method: string; body: string; headers: Headers }) => Response | Promise<Response>,
 ): typeof fetch {
   const captured: { url: string; method: string; body: string; headers: Headers }[] = [];
-  const fn = (async (url: URL | RequestInfo, init?: RequestInit): Promise<Response> => {
+  const fn = (async (url: URL | string, init?: RequestInit): Promise<Response> => {
     const req = {
       url: typeof url === "string" ? url : url.toString(),
       method: init?.method ?? "GET",
@@ -203,7 +203,7 @@ describe("HttpCredentialServiceClient", () => {
 
   it("propagates abort signal", async () => {
     let passedSignal: AbortSignal | null = null;
-    const fetchFn = (async (_url: URL | RequestInfo, init?: RequestInit): Promise<Response> => {
+    const fetchFn = (async (_url: URL | string, init?: RequestInit): Promise<Response> => {
       passedSignal = init?.signal ?? null;
       return new Response(JSON.stringify({ credentials: [] }), { status: 200 });
     }) as unknown as typeof fetch;

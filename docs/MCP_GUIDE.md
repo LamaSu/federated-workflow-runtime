@@ -1,6 +1,7 @@
 # Chorus auto-MCP Guide
 
-*Last updated: 2026-04-15. Author: mcp-papa (Wave 2, session 3).*
+*Last updated: 2026-04-15. Author: mcp-papa (Wave 2, session 3) +
+wire-romeo (Wave 3, session 4 — credential plumbing).*
 
 ---
 
@@ -65,6 +66,72 @@ operation's existing JSON-schema input unchanged.
 `__test_auth` is **read-only by contract**. If an integration's
 `test.viaOperation` points to a non-idempotent operation, the MCP server
 refuses to dispatch — per §7.3.
+
+### The `__authenticate` flow, end-to-end
+
+As of session 4 the OAuth browser-callback flow is wired. Here's what
+happens when an agent calls `slack-send__authenticate`:
+
+```
+┌──────────┐       ┌───────────────┐       ┌──────────────┐
+│  Agent   │──(1)─►│ MCP server    │──(2)─►│ credentialSvc│
+│ (Claude) │       │ dispatch      │       │ .authenticate│
+└──────────┘       └───────────────┘       └──────────────┘
+                                                    │
+                                     (3) write oauth_pending row
+                                                    │
+                                                    ▼
+                            ┌──────────────────────────────────┐
+                            │ returns {authorizeUrl, state,    │
+                            │          expiresAt}              │
+                            └──────────────────────────────────┘
+                                                    │
+                                                    ▼
+                       (4) agent opens browser at authorizeUrl
+                                                    │
+                                                    ▼
+                             user authorizes on provider consent
+                                                    │
+                                                    ▼
+                 (5) provider redirects to /api/oauth/callback?code&state
+                                                    │
+                                                    ▼
+            ┌──────────────────────────────────────────────────┐
+            │ Chorus runtime: token exchange, encrypt, persist,│
+            │ fire oauth.callback.<state> event                │
+            └──────────────────────────────────────────────────┘
+                                                    │
+                                                    ▼
+            ┌────────────────────────────────────────────────┐
+            │ MCP server (if inline-serve with OAuthListener)│
+            │ wakes from step.waitForEvent-style block, reads│
+            │ payload, returns to agent:                     │
+            │   {ok, credentialId, credentialTypeName}       │
+            └────────────────────────────────────────────────┘
+```
+
+In **inline-serve mode** (MCP server in the same process as the runtime):
+- The `__authenticate` tool blocks on `oauth.callback.<state>` for up
+  to 5 minutes via `OAuthCallbackListener`.
+- The agent gets a synchronous answer: either
+  `{ok: true, credentialId, credentialTypeName}` or
+  `{ok: false, error}` (including `"timeout"`).
+
+In **standalone scaffold mode** (MCP server in its own process, talking
+to runtime over HTTP via `HttpCredentialServiceClient`):
+- `__authenticate` returns `{authorizeUrl, state, expiresAt, message}`
+  synchronously. The caller opens the URL, waits for the callback, and
+  then polls `__test_auth` (or reopens the MCP session) to verify.
+- This trade-off keeps the scaffold stateless and survives MCP client
+  restarts during the authorize window.
+
+Error paths that set `consumed_error` on the `oauth_pending` row:
+- `expired` (user took longer than the configured 15-minute TTL)
+- `already consumed` (replay attempt with the same `state`)
+- `integration manifest not found` (rare — race with integration unload)
+- `clientId not resolvable at callback time` (no bootstrap credential)
+- `token exchange failed (<status>)` (provider rejected the code)
+- `token exchange: response missing access_token` (provider misbehavior)
 
 ## When to use MCP vs. `chorus run`
 
@@ -191,24 +258,31 @@ console.log(tools.map((t) => t.name));
 ## What's next
 
 Auto-MCP is Priority 1 in the post-MVP roadmap (`docs/ROADMAP.md` §1).
-Current scope (Wave 2, shipped):
+Current scope (Waves 2–3, shipped):
 
 - [x] Static tool mapping (`tool-mapping.ts`)
 - [x] Live MCP server over stdio (`server.ts`)
 - [x] Scaffold generator (`generate.ts`)
 - [x] CLI surface (`chorus mcp <list|generate|serve|config>`)
 - [x] User docs (this file)
+- [x] Credential service injection — `RuntimeCredentialService`
+  implements the `CredentialService` contract; MCP can now list,
+  configure, authenticate, and test credentials end-to-end (session 4).
+- [x] OAuth browser callback plumbing — `GET /api/oauth/callback`
+  exchanges code for tokens, encrypts + persists credential, fires
+  `oauth.callback.<state>` event; `OAuthCallbackListener` lets inline-
+  serve MCP block on it with a 5-minute timeout (session 4).
+- [x] `HttpCredentialServiceClient` for standalone scaffolds — the
+  generated `index.js` wires it when `CHORUS_RUNTIME_URL` is set;
+  graceful-degrades otherwise (session 4).
 
-Deferred to Wave 3+:
+Deferred:
 
-- Credential service injection — current scaffold serves operations
-  anonymously. The runtime's credential service needs to expose a public
-  interface for MCP to call (delegated to credentials-oscar / runtime).
-- OAuth browser callback plumbing — the `authenticate` tool returns a URL
-  today but doesn't wait for the callback. Needs `step.waitForEvent` from
-  events-quebec's work.
 - `tools/list_changed` notifications when integrations are added/removed
   while the MCP server is running.
+- Server-to-server OAuth (client-credentials grant) — currently only
+  the authorization-code flow is wired. Needed for provider-to-provider
+  integrations that don't involve a human.
 
 ## Relevant files
 
@@ -216,6 +290,11 @@ Deferred to Wave 3+:
 - `C:\Users\globa\chorus\packages\mcp\src\server.ts` — SDK-wrapped MCP server
 - `C:\Users\globa\chorus\packages\mcp\src\serve.ts` — inline serve helper
 - `C:\Users\globa\chorus\packages\mcp\src\generate.ts` — scaffold emitter
+- `C:\Users\globa\chorus\packages\mcp\src\credential-client.ts` — HTTP-backed CredentialService for standalone scaffolds
+- `C:\Users\globa\chorus\packages\runtime\src\credential-service.ts` — `RuntimeCredentialService` (in-process CredentialService impl)
+- `C:\Users\globa\chorus\packages\runtime\src\oauth-listener.ts` — `OAuthCallbackListener` (event bridge for inline-serve)
+- `C:\Users\globa\chorus\packages\runtime\src\api\oauth.ts` — `GET /api/oauth/callback` endpoint
+- `C:\Users\globa\chorus\packages\runtime\src\api\credentials.ts` — write-side credential API routes
 - `C:\Users\globa\chorus\packages\cli\src\commands\mcp.ts` — CLI wiring
 - `C:\Users\globa\chorus\docs\CREDENTIALS_ANALYSIS.md` §7 — the contract
 - `C:\Users\globa\chorus\docs\ROADMAP.md` §1 — why this exists
