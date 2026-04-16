@@ -1,6 +1,6 @@
 {
   "name": "@delightfulchorus/integration-stripe-charge",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Stripe create-charge integration — API-key auth, form-encoded wire format, Stripe-Version pinned.",
   "type": "module",
   "main": "./dist/index.js",
