@@ -53,7 +53,7 @@ async function setupFakeProject(opts: {
   const intRoot = path.join(
     tmpDir,
     "node_modules",
-    "@chorus",
+    "@delightfulchorus",
     `integration-${name}`,
   );
   await mkdir(path.join(intRoot, "dist"), { recursive: true });

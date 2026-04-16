@@ -272,7 +272,7 @@ async function discoverIntegrations(
 async function findIntegrationsRoot(cwd: string): Promise<string | null> {
   let current = path.resolve(cwd);
   for (let i = 0; i < 8; i++) {
-    const candidate = path.join(current, "node_modules", "@chorus");
+    const candidate = path.join(current, "node_modules", "@delightfulchorus");
     try {
       const s = await stat(candidate);
       if (s.isDirectory()) return candidate;
