@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Chorus — 90-Second Quickstart</title>
+<style>
+  :root {
+    --bg: #0a0e1a;
+    --term-bg: #13172a;
+    --fg: #e6e6e6;
+    --dim: #7b8196;
+    --green: #50fa7b;
+    --purple: #bd93f9;
+    --cyan: #8be9fd;
+    --yellow: #f1fa8c;
+    --pink: #ff79c6;
+    --border: #2a3050;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'SF Mono', 'Consolas', 'Menlo', 'Courier New', monospace;
+    background: var(--bg);
+    color: var(--fg);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+  }
+  header {
+    width: 100%;
+    max-width: 1100px;
+    margin-bottom: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    color: var(--dim);
+    font-size: 0.85rem;
+  }
+  header .title { color: var(--purple); font-weight: bold; font-size: 1rem; }
+  header .meta { color: var(--dim); }
+  .terminal {
+    width: 100%;
+    max-width: 1100px;
+    height: 640px;
+    background: var(--term-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  .titlebar {
+    background: #1c2140;
+    padding: 0.6rem 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .titlebar .dot {
+    width: 12px; height: 12px; border-radius: 50%;
+  }
+  .titlebar .dot.r { background: #ff5f57; }
+  .titlebar .dot.y { background: #ffbd2e; }
+  .titlebar .dot.g { background: #28ca42; }
+  .titlebar .tab {
+    margin-left: 1rem;
+    color: var(--dim);
+    font-size: 0.85rem;
+  }
+  .screen {
+    flex: 1;
+    padding: 1rem 1.5rem;
+    overflow-y: auto;
+    font-size: 0.95rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .screen::-webkit-scrollbar { width: 10px; }
+  .screen::-webkit-scrollbar-track { background: var(--term-bg); }
+  .screen::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; }
+  .line { display: block; min-height: 1.5em; }
+  .line.cmt { color: var(--dim); }
+  .line.cmd .prompt { color: var(--green); }
+  .line.cmd .path { color: var(--purple); }
+  .line.cmd .sep { color: var(--dim); }
+  .line.cmd .input { color: var(--fg); }
+  .line.out { color: var(--fg); }
+  .line.out.green { color: var(--green); }
+  .line.out.cyan { color: var(--cyan); }
+  .line.out.purple { color: var(--purple); }
+  .line.out.yellow { color: var(--yellow); }
+  .line.out.pink { color: var(--pink); }
+  .line.out.dim { color: var(--dim); }
+  .cursor {
+    display: inline-block;
+    background: var(--green);
+    width: 0.55rem;
+    height: 1.05rem;
+    vertical-align: text-bottom;
+    margin-left: 2px;
+    animation: blink 1s steps(2) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  .controls {
+    width: 100%;
+    max-width: 1100px;
+    margin-top: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    color: var(--dim);
+    font-size: 0.85rem;
+  }
+  button {
+    background: var(--border);
+    color: var(--fg);
+    border: 1px solid var(--purple);
+    padding: 0.4rem 0.9rem;
+    font-family: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.15s;
+  }
+  button:hover { background: var(--purple); color: var(--bg); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .timer { color: var(--yellow); font-variant-numeric: tabular-nums; }
+  footer {
+    margin-top: 2rem;
+    color: var(--dim);
+    font-size: 0.8rem;
+    text-align: center;
+    max-width: 1100px;
+  }
+  footer a { color: var(--cyan); text-decoration: none; }
+  footer a:hover { color: var(--pink); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="title">Chorus — federated workflow runtime, 90-second quickstart</div>
+  <div class="meta">press <kbd style="color:var(--yellow)">Space</kbd> to play/pause · <kbd style="color:var(--yellow)">R</kbd> to restart</div>
+</header>
+
+<div class="terminal">
+  <div class="titlebar">
+    <span class="dot r"></span>
+    <span class="dot y"></span>
+    <span class="dot g"></span>
+    <span class="tab">~/chorus-demo — chorus demo</span>
+  </div>
+  <div class="screen" id="screen"></div>
+</div>
+
+<div class="controls">
+  <div>
+    <button id="playBtn">▶ Play</button>
+    <button id="restartBtn">↻ Restart</button>
+    <button id="speedBtn">Speed: 1.0×</button>
+  </div>
+  <div class="timer">
+    <span id="elapsed">0:00</span> / <span id="total">~1:30</span>
+  </div>
+</div>
+
+<footer>
+  Record this window with <kbd style="color:var(--yellow)">Win+G</kbd> (Windows Game Bar) for an MP4.<br>
+  Live packages at <a href="https://www.npmjs.com/~lamasu">npmjs.com/~lamasu</a> · source at <a href="https://github.com/LamaSu/federated-workflow-runtime">github.com/LamaSu/federated-workflow-runtime</a>
+</footer>
+
+<script>
+/* ────────────────────────────────────────────────────────────────────────────
+   The script. Mirrors demos/chorus-quickstart.tape. Each entry is one step.
+   Types of entries:
+     { cmt: "... # comment" }           → dim grey, types slow
+     { cmd: "command text", cwd: "~" }  → green prompt + white text, types
+     { out: [...lines] }                → instant output, color-tagged
+     { pause: 1500 }                    → ms
+     { clear: true }                    → wipes screen
+   Output lines can be { text, color? } where color is one of: green, cyan, purple, yellow, pink, dim
+   ──────────────────────────────────────────────────────────────────────────── */
+const script = [
+  { cmt: "# Chorus — federated workflow runtime for the agent era" },
+  { pause: 500 },
+  { cmt: "# self-hosted · AI-repaired · signed patches propagate across the fleet" },
+  { pause: 1200 },
+
+  { cmd: "npx --yes @delightfulchorus/cli@latest init", cwd: "~/chorus-demo" },
+  { pause: 800 },
+  { out: [
+    { text: "npm notice fetching @delightfulchorus/cli@0.1.2 …", color: "dim" },
+    { text: "" },
+    { text: "✓ generated encryption key (32 bytes)", color: "green" },
+    { text: "✓ generated Ed25519 signing keypair", color: "green" },
+    { text: "✓ wrote chorus/config.yaml", color: "green" },
+    { text: "✓ wrote chorus/workflows/example-webhook.yaml", color: "green" },
+    { text: "✓ wrote .chorus/keys.json (mode 600)", color: "green" },
+    { text: "" },
+    { text: "Next steps:", color: "cyan" },
+    { text: "   chorus credentials add <integration>  # secure, encrypted", color: "dim" },
+    { text: "   chorus run                            # start the runtime", color: "dim" },
+    { text: "   chorus mcp list                       # expose to any agent", color: "dim" },
+  ]},
+  { pause: 2000 },
+
+  { cmd: "ls -la chorus/" },
+  { out: [
+    { text: "drwxr-xr-x  4 globa  197614  0 Apr 16 13:24 ." },
+    { text: "drwxr-xr-x  5 globa  197614  0 Apr 16 13:24 .." },
+    { text: "-rw-------  1 globa  197614 312 Apr 16 13:24 config.yaml" },
+    { text: "drwxr-xr-x  2 globa  197614   0 Apr 16 13:24 workflows" },
+    { text: "drwxr-xr-x  2 globa  197614   0 Apr 16 13:24 credentials" },
+  ]},
+  { pause: 1500 },
+
+  { cmd: "cat chorus/config.yaml" },
+  { out: [
+    { text: "name: chorus-demo", color: "cyan" },
+    { text: "runtime:", color: "cyan" },
+    { text: "  host: 127.0.0.1" },
+    { text: "  port: 3789" },
+    { text: "database:", color: "cyan" },
+    { text: "  path: .chorus/chorus.db" },
+    { text: "repair:", color: "cyan" },
+    { text: "  enabled: true" },
+    { text: "  mode: private  # private | community", color: "dim" },
+  ]},
+  { pause: 2500 },
+
+  { clear: true },
+  { cmt: "# Integrations are npm packages. Install what you need." },
+  { pause: 800 },
+  { cmd: "npm install @delightfulchorus/integration-slack-send" },
+  { pause: 500 },
+  { out: [
+    { text: "added 1 package in 1s", color: "green" },
+  ]},
+  { pause: 1000 },
+
+  { cmt: "# Every integration is auto-MCP. Expose to any agent." },
+  { pause: 800 },
+  { cmd: "chorus mcp list" },
+  { pause: 400 },
+  { out: [
+    { text: "MCP-ready integrations:", color: "purple" },
+    { text: "  slack-send v0.1.2   1 ops + 3 credential tools = 4 MCP tools", color: "cyan" },
+  ]},
+  { pause: 2500 },
+
+  { clear: true },
+  { cmt: "# The UI is agent-generated. Chorus ships a prompt, not a dashboard." },
+  { pause: 1000 },
+  { cmt: "# Paste this into Claude / Cursor / ChatGPT — get a custom dashboard." },
+  { pause: 1000 },
+  { cmd: "chorus ui --prompt | head -20" },
+  { pause: 400 },
+  { out: [
+    { text: "# Chorus UI Generator Prompt v1", color: "yellow" },
+    { text: "" },
+    { text: "You are generating a single-file HTML dashboard for a Chorus workflow runtime." },
+    { text: "" },
+    { text: "STEP 1 — fetch the self-describing manifest:", color: "cyan" },
+    { text: "  GET http://127.0.0.1:3789/api/manifest" },
+    { text: "" },
+    { text: "STEP 2 — ask the user which view they want, and in what style:", color: "cyan" },
+    { text: "  (examples: \"recent runs in a minimalist terminal theme\"," },
+    { text: "   \"error signatures as a solarpunk card grid\", \"Notion-style\")" },
+    { text: "" },
+    { text: "STEP 3 — emit ONE self-contained HTML file. Constraints:", color: "cyan" },
+    { text: "  - No external CDNs (must work offline)" },
+    { text: "  - Vanilla JS + fetch + inline CSS" },
+    { text: "  - Auto-refresh every 15s" },
+    { text: "  - Status colors: success=green, failed=red, pending=yellow" },
+    { text: "  - Use {{STYLE}} as the aesthetic override" },
+    { text: "" },
+    { text: "FORBIDDEN: CDN imports, tracking scripts, prose before/after the code." },
+    { text: "…", color: "dim" },
+  ]},
+  { pause: 4000 },
+
+  { clear: true },
+  { cmt: "# That's the whole pitch in 90 seconds." },
+  { pause: 600 },
+  { cmt: "# Workflow runtime + auto-MCP + agent-generated UI + self-healing patches." },
+  { pause: 1200 },
+  { cmd: "" },
+  { out: [
+    { text: "Install:", color: "purple" },
+    { text: "  npm install -g @delightfulchorus/cli", color: "green" },
+    { text: "  chorus init", color: "green" },
+    { text: "  chorus run", color: "green" },
+    { text: "" },
+    { text: "Docs:  github.com/LamaSu/federated-workflow-runtime", color: "cyan" },
+    { text: "Npm:   npmjs.com/~lamasu", color: "cyan" },
+    { text: "" },
+    { text: "★ federated workflow runtime for the agent era ★", color: "pink" },
+  ]},
+  { pause: 5000 },
+];
+
+/* ──────────────────────────────────────────────────────────────────────────── */
+
+const screen = document.getElementById('screen');
+const playBtn = document.getElementById('playBtn');
+const restartBtn = document.getElementById('restartBtn');
+const speedBtn = document.getElementById('speedBtn');
+const elapsedEl = document.getElementById('elapsed');
+
+let playing = false;
+let aborted = false;
+let speed = 1.0;
+let startTs = 0;
+let elapsedTimer = null;
+
+function fmt(sec) {
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+function startTimer() {
+  startTs = Date.now();
+  elapsedTimer = setInterval(() => {
+    elapsedEl.textContent = fmt((Date.now() - startTs) / 1000);
+  }, 200);
+}
+function stopTimer() {
+  clearInterval(elapsedTimer);
+}
+
+function appendLine(className = '') {
+  const div = document.createElement('span');
+  div.className = 'line' + (className ? ' ' + className : '');
+  screen.appendChild(div);
+  return div;
+}
+function scrollBottom() {
+  screen.scrollTop = screen.scrollHeight;
+}
+function clearCursor() {
+  const cursors = screen.querySelectorAll('.cursor');
+  cursors.forEach(c => c.remove());
+}
+function addCursor(line) {
+  const cur = document.createElement('span');
+  cur.className = 'cursor';
+  line.appendChild(cur);
+}
+
+async function sleep(ms) {
+  const scaled = ms / speed;
+  const start = Date.now();
+  while (Date.now() - start < scaled) {
+    if (aborted) throw new Error('aborted');
+    await new Promise(r => setTimeout(r, Math.min(50, scaled - (Date.now() - start))));
+  }
+}
+
+async function typeInto(el, text, perChar = 45) {
+  for (const char of text) {
+    if (aborted) throw new Error('aborted');
+    el.textContent += char;
+    scrollBottom();
+    await sleep(perChar + Math.random() * 20);
+  }
+}
+
+async function runComment(text) {
+  const line = appendLine('cmt');
+  addCursor(line);
+  const span = document.createElement('span');
+  line.insertBefore(span, line.querySelector('.cursor'));
+  await typeInto(span, text, 22);
+  clearCursor();
+  appendLine(); // blank gap
+}
+
+async function runCommand(text, cwd = '~') {
+  const line = appendLine('cmd');
+  const prompt = document.createElement('span');
+  prompt.className = 'prompt';
+  prompt.textContent = 'lamasu';
+  line.appendChild(prompt);
+
+  const sep = document.createElement('span');
+  sep.className = 'sep';
+  sep.textContent = '@';
+  line.appendChild(sep);
+
+  const host = document.createElement('span');
+  host.className = 'prompt';
+  host.textContent = 'chorus';
+  line.appendChild(host);
+
+  const colon = document.createElement('span');
+  colon.className = 'sep';
+  colon.textContent = ':';
+  line.appendChild(colon);
+
+  const path = document.createElement('span');
+  path.className = 'path';
+  path.textContent = cwd;
+  line.appendChild(path);
+
+  const dollar = document.createElement('span');
+  dollar.className = 'sep';
+  dollar.textContent = '$ ';
+  line.appendChild(dollar);
+
+  const input = document.createElement('span');
+  input.className = 'input';
+  line.appendChild(input);
+
+  addCursor(line);
+  await typeInto(input, text, 40);
+  clearCursor();
+}
+
+function runOutput(lines) {
+  for (const l of lines) {
+    const line = appendLine('out' + (l.color ? ' ' + l.color : ''));
+    line.textContent = l.text ?? '';
+  }
+  scrollBottom();
+}
+
+async function runClear() {
+  screen.innerHTML = '';
+}
+
+async function play() {
+  if (playing) return;
+  playing = true;
+  aborted = false;
+  playBtn.textContent = '⏸ Pause';
+  startTimer();
+
+  try {
+    for (const step of script) {
+      if (aborted) break;
+      if (step.cmt != null) await runComment(step.cmt);
+      else if (step.cmd != null) await runCommand(step.cmd, step.cwd || '~/chorus-demo');
+      else if (step.out != null) { runOutput(step.out); await sleep(150); }
+      else if (step.pause != null) await sleep(step.pause);
+      else if (step.clear) await runClear();
+    }
+  } catch (e) {
+    // aborted — swallow
+  }
+
+  playing = false;
+  aborted = false;
+  playBtn.textContent = '▶ Play';
+  stopTimer();
+}
+
+function restart() {
+  aborted = true;
+  setTimeout(() => {
+    screen.innerHTML = '';
+    elapsedEl.textContent = '0:00';
+    play();
+  }, 100);
+}
+
+playBtn.addEventListener('click', () => {
+  if (playing) {
+    aborted = true;
+    playBtn.textContent = '▶ Play';
+  } else play();
+});
+restartBtn.addEventListener('click', restart);
+speedBtn.addEventListener('click', () => {
+  const speeds = [0.5, 1.0, 1.5, 2.0];
+  const i = (speeds.indexOf(speed) + 1) % speeds.length;
+  speed = speeds[i];
+  speedBtn.textContent = `Speed: ${speed.toFixed(1)}×`;
+});
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Space') { e.preventDefault(); playBtn.click(); }
+  if (e.key === 'r' || e.key === 'R') restart();
+});
+
+// Auto-play on load
+window.addEventListener('load', () => setTimeout(play, 400));
+</script>
+</body>
+</html>
