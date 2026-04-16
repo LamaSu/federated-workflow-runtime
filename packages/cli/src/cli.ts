@@ -14,6 +14,9 @@
  *
  * This file wires commander flags to the command modules in ./commands/.
  */
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 import { Command } from "commander";
 import pc from "picocolors";
 import { runInit } from "./commands/init.js";
@@ -43,7 +46,24 @@ import {
   mcpConfig,
 } from "./commands/mcp.js";
 
-const VERSION = "0.1.0";
+/**
+ * Read version from the CLI package's own package.json at runtime. Works
+ * whether invoked from tsx (src/cli.ts → ../package.json) or from the
+ * built bundle (dist/cli.js → ../package.json). Falls back to "unknown"
+ * if the file can't be read — the CLI still runs, just without a version.
+ */
+function readVersion(): string {
+  try {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const pkgPath = path.join(here, "..", "package.json");
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { version?: string };
+    return pkg.version ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+const VERSION = readVersion();
 
 /**
  * Build the commander program. Exported so tests (and embedded users) can
