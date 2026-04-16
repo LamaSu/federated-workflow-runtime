@@ -37,10 +37,12 @@ export {
   buildChorusMcpServer,
   dispatchTool,
   runChorusMcpServerStdio,
+  DEFAULT_OAUTH_WAIT_MS,
   type CredentialService,
   type CredentialSummary,
   type CredentialTestResultView,
   type ChorusMcpServerOptions,
+  type OAuthEventListener,
 } from "./server.js";
 
 export {

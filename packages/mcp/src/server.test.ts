@@ -7,7 +7,9 @@ import type {
 import {
   buildChorusMcpServer,
   dispatchTool,
+  DEFAULT_OAUTH_WAIT_MS,
   type CredentialService,
+  type OAuthEventListener,
 } from "./server.js";
 import type { ManifestWithCredentialTypes, McpTool } from "./tool-mapping.js";
 import { manifestToMcpTools } from "./tool-mapping.js";
@@ -276,6 +278,121 @@ describe("dispatchTool → credential", () => {
       integration: "slack-send",
       name: "work",
     });
+  });
+
+  it("authenticate returns URL + message when no event listener is wired", async () => {
+    // Stub service returns a state token. With no listener, dispatch
+    // should return synchronously with the URL and a nudge message.
+    const service: CredentialService = {
+      list: async () => [],
+      configure: async () => ({ id: "c", name: "default" }),
+      authenticate: async () => ({
+        authorizeUrl: "https://provider.example/oauth/authorize?state=s-1",
+        state: "s-1",
+        expiresAt: "2026-04-15T01:00:00.000Z",
+      }),
+      testAuth: async () => ({ ok: true, latencyMs: 0 }),
+    };
+    const tools = manifestToMcpTools(slackManifest);
+    const authTool = tools.find((t) => t.name === "slack-send__authenticate")!;
+    const result = await dispatchTool(authTool, { name: "work" }, {
+      integration: fakeIntegration,
+      credentialService: service,
+    });
+    expect(result).toMatchObject({
+      authorizeUrl: "https://provider.example/oauth/authorize?state=s-1",
+      state: "s-1",
+      expiresAt: "2026-04-15T01:00:00.000Z",
+    });
+    expect((result as { message: string }).message).toMatch(/test_auth|authorize|reopen/i);
+  });
+
+  it("authenticate blocks on event listener and returns credentialId on success", async () => {
+    const service: CredentialService = {
+      list: async () => [],
+      configure: async () => ({ id: "c", name: "default" }),
+      authenticate: async () => ({
+        authorizeUrl: "https://provider.example/oauth/authorize?state=s-ok",
+        state: "s-ok",
+      }),
+      testAuth: async () => ({ ok: true, latencyMs: 0 }),
+    };
+    const listener: OAuthEventListener = {
+      waitForOAuthCallback: async (state, _timeout) => ({
+        ok: true,
+        credentialId: `cred-from-${state}`,
+        credentialTypeName: "slackBot",
+      }),
+    };
+    const tools = manifestToMcpTools(slackManifest);
+    const authTool = tools.find((t) => t.name === "slack-send__authenticate")!;
+    const result = await dispatchTool(authTool, { name: "work" }, {
+      integration: fakeIntegration,
+      credentialService: service,
+      eventListener: listener,
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      credentialId: "cred-from-s-ok",
+      credentialTypeName: "slackBot",
+      authorizeUrl: "https://provider.example/oauth/authorize?state=s-ok",
+      state: "s-ok",
+    });
+  });
+
+  it("authenticate returns ok:false with error on listener timeout", async () => {
+    const service: CredentialService = {
+      list: async () => [],
+      configure: async () => ({ id: "c", name: "default" }),
+      authenticate: async () => ({
+        authorizeUrl: "https://provider.example/oauth?state=s-to",
+        state: "s-to",
+      }),
+      testAuth: async () => ({ ok: true, latencyMs: 0 }),
+    };
+    const listener: OAuthEventListener = {
+      waitForOAuthCallback: async () => ({ ok: false, error: "timeout" }),
+    };
+    const tools = manifestToMcpTools(slackManifest);
+    const authTool = tools.find((t) => t.name === "slack-send__authenticate")!;
+    const result = await dispatchTool(authTool, { name: "work" }, {
+      integration: fakeIntegration,
+      credentialService: service,
+      eventListener: listener,
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      error: "timeout",
+      state: "s-to",
+    });
+  });
+
+  it("authenticate passes DEFAULT_OAUTH_WAIT_MS (5 min) to listener", async () => {
+    let capturedTimeout = 0;
+    const service: CredentialService = {
+      list: async () => [],
+      configure: async () => ({ id: "c", name: "default" }),
+      authenticate: async () => ({
+        authorizeUrl: "https://p.example/auth?state=t",
+        state: "t",
+      }),
+      testAuth: async () => ({ ok: true, latencyMs: 0 }),
+    };
+    const listener: OAuthEventListener = {
+      waitForOAuthCallback: async (_s, timeoutMs) => {
+        capturedTimeout = timeoutMs;
+        return { ok: true, credentialId: "x", credentialTypeName: "y" };
+      },
+    };
+    const tools = manifestToMcpTools(slackManifest);
+    const authTool = tools.find((t) => t.name === "slack-send__authenticate")!;
+    await dispatchTool(authTool, {}, {
+      integration: fakeIntegration,
+      credentialService: service,
+      eventListener: listener,
+    });
+    expect(capturedTimeout).toBe(DEFAULT_OAUTH_WAIT_MS);
+    expect(DEFAULT_OAUTH_WAIT_MS).toBe(5 * 60_000);
   });
 
   it("test_auth requires credentialId", async () => {

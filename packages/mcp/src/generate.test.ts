@@ -55,7 +55,21 @@ describe("generateMcpServer", () => {
     expect(idx).toContain(
       'import integration from "@chorus-integrations/slack-send"',
     );
-    expect(idx).toContain("serveIntegration({ integration })");
+    // Scaffold now passes a credentialService (optional) alongside.
+    expect(idx).toContain("serveIntegration({ integration, credentialService })");
+  });
+
+  it("index.js wires HttpCredentialServiceClient when CHORUS_RUNTIME_URL is set", async () => {
+    const outDir = path.join(tmpDir, "out");
+    await generateMcpServer({ integration: "slack-send", outDir });
+    const idx = await readFile(path.join(outDir, "index.js"), "utf8");
+    expect(idx).toContain("CHORUS_RUNTIME_URL");
+    expect(idx).toContain("CHORUS_API_TOKEN");
+    expect(idx).toContain("HttpCredentialServiceClient");
+    expect(idx).toContain('@chorus/mcp/credential-client');
+    // Should NOT statically import — dynamic import keeps the scaffold
+    // working without the client module present in tool-exposure-only mode.
+    expect(idx).toContain("await import");
   });
 
   it("README documents Claude Desktop / Cursor / Zed registration", async () => {

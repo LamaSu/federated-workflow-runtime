@@ -13,6 +13,7 @@ import {
   runChorusMcpServerStdio,
   buildChorusMcpServer,
   type CredentialService,
+  type OAuthEventListener,
 } from "./server.js";
 
 export interface ServeIntegrationOptions {
@@ -24,6 +25,12 @@ export interface ServeIntegrationOptions {
    * for read-only use cases where the agent only calls operations.
    */
   credentialService?: CredentialService;
+  /**
+   * OAuth event listener. When wired, __authenticate blocks on the
+   * oauth.callback.<state> event (5-min timeout). When omitted, the
+   * tool returns the authorizeUrl+state synchronously.
+   */
+  eventListener?: OAuthEventListener;
   /** Optional override of the advertised server name/version. */
   serverInfo?: { name?: string; version?: string };
   /**
@@ -54,6 +61,7 @@ export async function serveIntegration(
     await buildChorusMcpServer({
       integration: opts.integration,
       credentialService: opts.credentialService,
+      eventListener: opts.eventListener,
       serverInfo: opts.serverInfo,
     });
     return;
@@ -68,6 +76,7 @@ export async function serveIntegration(
   await runChorusMcpServerStdio({
     integration: opts.integration,
     credentialService: opts.credentialService,
+    eventListener: opts.eventListener,
     serverInfo: opts.serverInfo,
   });
 }

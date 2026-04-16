@@ -65,12 +65,24 @@ export interface CredentialService {
    * Implementations should spin up a localhost listener for the callback and
    * persist the resulting tokens as an encrypted credential; that part is
    * out of scope for the MCP server, which just surfaces the URL.
+   *
+   * The returned `state` token lets the caller (the MCP __authenticate
+   * dispatch path) correlate the authorize URL to the downstream
+   * `oauth.callback.<state>` event fired by GET /api/oauth/callback.
+   * When an `EventListener` is wired on the server opts, the dispatch
+   * path blocks on the event for up to 5 minutes and resolves either
+   * `{ok: true, credentialId}` or `{ok: false, error: "timeout"}`.
    */
   authenticate?(args: {
     integration: string;
     credentialTypeName: string;
     name: string;
-  }): Promise<{ authorizeUrl: string; credentialId?: string }>;
+  }): Promise<{
+    authorizeUrl: string;
+    state?: string;
+    expiresAt?: string;
+    credentialId?: string;
+  }>;
 
   /**
    * Run the integration's test hook against a stored credential. The MCP
@@ -105,17 +117,54 @@ export interface CredentialTestResultView {
   errorCode?: string;
 }
 
+/**
+ * Event-listener hook — the runtime injects this so the MCP
+ * __authenticate tool can block on `oauth.callback.<state>`. Matches
+ * the shape `step.waitForEvent` uses internally; standalone scaffolds
+ * (no in-process runtime) leave it unset and the tool returns the URL
+ * synchronously, letting the caller poll testAuth or re-open an MCP
+ * session after the user finishes authorizing.
+ */
+export interface OAuthEventListener {
+  /**
+   * Block until an event of `type` arrives (or the timeout fires).
+   * Returns the event payload on success, or a timeout sentinel.
+   */
+  waitForOAuthCallback(
+    state: string,
+    timeoutMs: number,
+  ): Promise<
+    | { ok: true; credentialId: string; credentialTypeName: string }
+    | { ok: false; error: string }
+  >;
+}
+
 export interface ChorusMcpServerOptions {
   /** The integration module to expose. */
   integration: IntegrationModule;
   /** Credential service (real in production, stub in tests). */
   credentialService?: CredentialService;
   /**
+   * Event listener — when wired, the __authenticate tool will block on
+   * `oauth.callback.<state>` with a 5-minute timeout. Without it, the
+   * tool returns `{authorizeUrl, state}` synchronously and documents
+   * that callers should poll testAuth.
+   */
+  eventListener?: OAuthEventListener;
+  /**
    * Optional name/version overrides for the server identity. Defaults to
    * `chorus-<integration.name>` / `integration.version`.
    */
   serverInfo?: { name?: string; version?: string };
 }
+
+/**
+ * Default timeout for __authenticate's block-on-callback wait. Matches
+ * the rule-of-thumb "user opens browser, authorizes, redirects back
+ * within 5 minutes" — longer than any reasonable consent flow, shorter
+ * than an MCP client's default idle.
+ */
+export const DEFAULT_OAUTH_WAIT_MS = 5 * 60_000;
 
 /**
  * Build — but don't `connect` — an MCP server. Returns the raw SDK Server
@@ -282,20 +331,46 @@ async function dispatchCredential(
       const typeName =
         typeof args.credentialTypeName === "string" ? args.credentialTypeName : undefined;
       const name = typeof args.name === "string" ? args.name : "default";
-      if (!typeName) {
-        // Only one OAuth type — we'd ideally resolve it from the manifest.
-        // For now ask the service; if it needs a name it will fail.
-        return svc.authenticate({
-          integration: binding.integration,
-          credentialTypeName: "",
-          name,
-        });
-      }
-      return svc.authenticate({
+      const initiated = await svc.authenticate({
         integration: binding.integration,
-        credentialTypeName: typeName,
+        credentialTypeName: typeName ?? "",
         name,
       });
+      // If the runtime wired an OAuth event listener, block on the
+      // callback event so the MCP caller gets a synchronous answer.
+      // Without a listener, return the URL + state so the caller can
+      // open the browser and poll testAuth() or reopen the MCP session.
+      const listener = opts.eventListener;
+      if (listener && initiated.state) {
+        const outcome = await listener.waitForOAuthCallback(
+          initiated.state,
+          DEFAULT_OAUTH_WAIT_MS,
+        );
+        if (outcome.ok) {
+          return {
+            ok: true,
+            authorizeUrl: initiated.authorizeUrl,
+            state: initiated.state,
+            credentialId: outcome.credentialId,
+            credentialTypeName: outcome.credentialTypeName,
+          };
+        }
+        return {
+          ok: false,
+          authorizeUrl: initiated.authorizeUrl,
+          state: initiated.state,
+          error: outcome.error,
+        };
+      }
+      // Fallback: no listener — return URL + state synchronously, with
+      // a descriptive message so the caller knows to poll.
+      return {
+        authorizeUrl: initiated.authorizeUrl,
+        state: initiated.state,
+        expiresAt: initiated.expiresAt,
+        message:
+          "Open this URL to authorize. Once the provider redirects back, call __test_auth to verify — or reopen this MCP session. No in-process event listener is wired.",
+      };
     }
     case "test_auth": {
       const credentialId =

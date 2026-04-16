@@ -42,6 +42,11 @@ export {
 } from "./credential-service.js";
 
 export {
+  OAuthCallbackListener,
+  type OAuthCallbackListenerOptions,
+} from "./oauth-listener.js";
+
+export {
   DEFAULT_VISIBILITY_MS,
   RunQueue,
   type ClaimOptions,
