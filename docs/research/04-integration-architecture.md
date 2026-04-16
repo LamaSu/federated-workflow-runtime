@@ -3,13 +3,13 @@ Agent: scout-november
 Started: 2026-04-16
 
 ## Progress Tracker
-- [ ] n8n node anatomy
-- [ ] Pipedream components model
-- [ ] OpenAPI → tool generators
-- [ ] Universal adapter patterns
-- [ ] Houston-bridge pattern
-- [ ] Long-tail strategy research
-- [ ] Final synthesis: recommended 3-shape architecture
+- [x] n8n node anatomy
+- [x] Pipedream components model
+- [x] OpenAPI → tool generators
+- [x] Universal adapter patterns
+- [x] Houston-bridge pattern
+- [x] Long-tail strategy research
+- [x] Final synthesis: recommended 3-shape architecture
 
 ## Raw Research Notes
 
