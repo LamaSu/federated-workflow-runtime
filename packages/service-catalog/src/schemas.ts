@@ -152,11 +152,17 @@ export const OperationEntrySchema = z.object({
   method: HttpMethodEnum,
 
   /**
-   * Path template relative to the service's `baseUrl`. Supports `{name}`
-   * placeholders resolved from the caller's `pathParams` input.
-   * Examples: "/repos/{owner}/{repo}/issues", "/v1/messages".
+   * Path template, either (a) relative to the service's `baseUrl` (must
+   * start with "/"), or (b) an absolute URL ("https://..."). Absolute URLs
+   * are useful when a single service has endpoints on multiple hosts —
+   * e.g. Basecamp's /authorization.json lives on launchpad.37signals.com
+   * while everything else lives on 3.basecampapi.com.
+   * Supports `{name}` placeholders resolved from the caller's `pathParams` input.
    */
-  path: z.string().startsWith("/"),
+  path: z.string().refine(
+    (p) => p.startsWith("/") || /^https?:\/\//.test(p),
+    { message: "path must start with '/' or be an absolute http(s):// URL" },
+  ),
 
   /** What this op does. Shown in the workflow-builder picker. */
   description: z.string().min(1).max(500),
