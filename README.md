@@ -77,6 +77,8 @@ More integrations are added as community patches via the registry.
 
 Early. See `docs/ARCHITECTURE.md` for the full design and `docs/ROADMAP.md` for what's coming.
 
+> **No demo video yet** — the author's laptop is currently OOM from 24 concurrent Claude Code instances running in terminal tabs. Once RAM is reclaimed, a proper walkthrough lands here.
+
 ## Install
 
 ```bash
