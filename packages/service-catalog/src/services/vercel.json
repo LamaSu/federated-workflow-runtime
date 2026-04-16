@@ -1,0 +1,70 @@
+{
+  "serviceId": "vercel",
+  "displayName": "Vercel",
+  "docsUrl": "https://vercel.com/docs/rest-api",
+  "baseUrl": "https://api.vercel.com",
+  "authTypes": [
+    {
+      "id": "vercelAccessToken",
+      "displayName": "Vercel Access Token",
+      "authType": "bearer",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Access Token",
+          "type": "password",
+          "required": true,
+          "description": "Create at https://vercel.com/account/tokens.",
+          "deepLink": "https://vercel.com/account/tokens",
+          "oauthManaged": false
+        },
+        {
+          "name": "teamId",
+          "displayName": "Team ID (optional)",
+          "type": "string",
+          "required": false,
+          "description": "Scope requests to a team by adding ?teamId= to the URL.",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "documentationUrl": "https://vercel.com/docs/rest-api#authentication",
+      "deepLink": "https://vercel.com/account/tokens",
+      "test": { "method": "GET", "path": "/v2/user" }
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "get-user",
+      "displayName": "Get Current User",
+      "method": "GET",
+      "path": "/v2/user",
+      "description": "Retrieve the authenticated user."
+    },
+    {
+      "id": "list-projects",
+      "displayName": "List Projects",
+      "method": "GET",
+      "path": "/v9/projects",
+      "description": "List projects the user has access to."
+    },
+    {
+      "id": "list-deployments",
+      "displayName": "List Deployments",
+      "method": "GET",
+      "path": "/v6/deployments",
+      "description": "List recent deployments."
+    },
+    {
+      "id": "create-deployment",
+      "displayName": "Create Deployment",
+      "method": "POST",
+      "path": "/v13/deployments",
+      "description": "Create a new deployment (typically via git or files array).",
+      "bodyContentType": "application/json"
+    }
+  ]
+}

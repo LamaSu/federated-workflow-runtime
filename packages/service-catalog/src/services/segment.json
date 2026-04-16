@@ -1,0 +1,83 @@
+{
+  "serviceId": "segment",
+  "displayName": "Segment (Twilio)",
+  "docsUrl": "https://segment.com/docs/connections/sources/catalog/libraries/server/http-api/",
+  "baseUrl": "https://api.segment.io",
+  "authTypes": [
+    {
+      "id": "segmentWriteKey",
+      "displayName": "Segment Write Key (HTTP Basic)",
+      "authType": "basic",
+      "fields": [
+        {
+          "name": "username",
+          "displayName": "Write Key",
+          "type": "password",
+          "required": true,
+          "description": "Segment source Write Key — used as the HTTP Basic username. Find in app.segment.com > Sources > your-source > Settings > API Keys.",
+          "deepLink": "https://app.segment.com/",
+          "oauthManaged": false
+        },
+        {
+          "name": "password",
+          "displayName": "Password (leave blank)",
+          "type": "password",
+          "required": false,
+          "description": "Blank — Segment only uses the write-key as the username.",
+          "default": "",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Basic {base64:username:password}"
+      },
+      "documentationUrl": "https://segment.com/docs/connections/sources/catalog/libraries/server/http-api/#authentication",
+      "deepLink": "https://app.segment.com/"
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "track",
+      "displayName": "Track Event",
+      "method": "POST",
+      "path": "/v1/track",
+      "description": "Record a user event (e.g., 'Signed Up').",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "required": ["event"],
+        "properties": {
+          "userId": { "type": "string" },
+          "anonymousId": { "type": "string" },
+          "event": { "type": "string" },
+          "properties": { "type": "object" }
+        }
+      }
+    },
+    {
+      "id": "identify",
+      "displayName": "Identify User",
+      "method": "POST",
+      "path": "/v1/identify",
+      "description": "Associate a user ID with traits.",
+      "bodyContentType": "application/json"
+    },
+    {
+      "id": "page",
+      "displayName": "Page",
+      "method": "POST",
+      "path": "/v1/page",
+      "description": "Record a page view.",
+      "bodyContentType": "application/json"
+    },
+    {
+      "id": "batch",
+      "displayName": "Batch",
+      "method": "POST",
+      "path": "/v1/batch",
+      "description": "Send many track/identify/page events in a single call.",
+      "bodyContentType": "application/json"
+    }
+  ]
+}

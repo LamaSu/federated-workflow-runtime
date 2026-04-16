@@ -1,0 +1,70 @@
+{
+  "serviceId": "circleci",
+  "displayName": "CircleCI",
+  "docsUrl": "https://circleci.com/docs/api/v2/",
+  "baseUrl": "https://circleci.com",
+  "authTypes": [
+    {
+      "id": "circleciPersonalAPIToken",
+      "displayName": "CircleCI Personal API Token",
+      "authType": "apiKey",
+      "fields": [
+        {
+          "name": "apiKey",
+          "displayName": "Personal API Token",
+          "type": "password",
+          "required": true,
+          "description": "Create at https://app.circleci.com/settings/user/tokens.",
+          "deepLink": "https://app.circleci.com/settings/user/tokens",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Circle-Token",
+        "format": "{apiKey}"
+      },
+      "documentationUrl": "https://circleci.com/docs/managing-api-tokens/",
+      "deepLink": "https://app.circleci.com/settings/user/tokens",
+      "test": { "method": "GET", "path": "/api/v2/me" }
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "get-me",
+      "displayName": "Get Current User",
+      "method": "GET",
+      "path": "/api/v2/me",
+      "description": "Retrieve the user identity associated with the token."
+    },
+    {
+      "id": "list-pipelines",
+      "displayName": "List Pipelines",
+      "method": "GET",
+      "path": "/api/v2/project/{project_slug}/pipeline",
+      "description": "List pipelines for a project. project_slug format: gh/org/repo."
+    },
+    {
+      "id": "trigger-pipeline",
+      "displayName": "Trigger Pipeline",
+      "method": "POST",
+      "path": "/api/v2/project/{project_slug}/pipeline",
+      "description": "Trigger a new pipeline on the given project + branch.",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "branch": { "type": "string" },
+          "tag": { "type": "string" },
+          "parameters": { "type": "object" }
+        }
+      }
+    },
+    {
+      "id": "get-workflow",
+      "displayName": "Get Workflow",
+      "method": "GET",
+      "path": "/api/v2/workflow/{id}",
+      "description": "Retrieve a single workflow by ID."
+    }
+  ]
+}

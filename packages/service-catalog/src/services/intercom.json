@@ -1,0 +1,100 @@
+{
+  "serviceId": "intercom",
+  "displayName": "Intercom",
+  "docsUrl": "https://developers.intercom.com/docs/references/rest-api/api.intercom.io/",
+  "baseUrl": "https://api.intercom.io",
+  "authTypes": [
+    {
+      "id": "intercomAccessToken",
+      "displayName": "Intercom Access Token",
+      "authType": "bearer",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Access Token",
+          "type": "password",
+          "required": true,
+          "description": "From Intercom Developer Hub > your app > Authentication. Also the 'Access Token' shown for Private apps.",
+          "deepLink": "https://app.intercom.com/a/apps/_/developer-hub",
+          "oauthManaged": false
+        },
+        {
+          "name": "intercomVersion",
+          "displayName": "Intercom-Version header",
+          "type": "string",
+          "required": false,
+          "description": "API version. Defaults to 2.11 — the latest stable.",
+          "default": "2.11",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "documentationUrl": "https://developers.intercom.com/docs/build-an-integration/learn-more/authentication/",
+      "deepLink": "https://app.intercom.com/a/apps/_/developer-hub",
+      "test": { "method": "GET", "path": "/me" }
+    },
+    {
+      "id": "intercomOAuth",
+      "displayName": "Intercom OAuth 2.0",
+      "authType": "oauth2",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Access Token",
+          "type": "password",
+          "required": true,
+          "oauthManaged": true
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "oauth": {
+        "authorizeUrl": "https://app.intercom.com/oauth",
+        "tokenUrl": "https://api.intercom.io/auth/eagle/token",
+        "scopes": [],
+        "pkce": false,
+        "clientAuthStyle": "body",
+        "redirectPath": "/oauth/callback",
+        "authorizeQueryParams": {}
+      },
+      "documentationUrl": "https://developers.intercom.com/docs/build-an-integration/learn-more/authentication/setting-up-oauth/"
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "list-contacts",
+      "displayName": "List Contacts",
+      "method": "GET",
+      "path": "/contacts",
+      "description": "List contacts (users and leads)."
+    },
+    {
+      "id": "create-contact",
+      "displayName": "Create Contact",
+      "method": "POST",
+      "path": "/contacts",
+      "description": "Create a contact.",
+      "bodyContentType": "application/json"
+    },
+    {
+      "id": "list-conversations",
+      "displayName": "List Conversations",
+      "method": "GET",
+      "path": "/conversations",
+      "description": "List conversations across the workspace."
+    },
+    {
+      "id": "create-conversation",
+      "displayName": "Create Conversation",
+      "method": "POST",
+      "path": "/conversations",
+      "description": "Open a new user-initiated conversation.",
+      "bodyContentType": "application/json"
+    }
+  ]
+}

@@ -1,0 +1,91 @@
+{
+  "serviceId": "posthog",
+  "displayName": "PostHog",
+  "docsUrl": "https://posthog.com/docs/api",
+  "baseUrl": "https://us.i.posthog.com",
+  "authTypes": [
+    {
+      "id": "posthogPersonalAPIKey",
+      "displayName": "PostHog Personal API Key",
+      "authType": "bearer",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Personal API Key",
+          "type": "password",
+          "required": true,
+          "description": "Create at https://us.posthog.com/me/settings (or your EU instance). Starts with 'phx_'.",
+          "deepLink": "https://us.posthog.com/me/settings",
+          "pattern": "^phx_",
+          "oauthManaged": false
+        },
+        {
+          "name": "projectId",
+          "displayName": "Project ID",
+          "type": "string",
+          "required": false,
+          "description": "Numeric project ID — used for project-scoped endpoints.",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "documentationUrl": "https://posthog.com/docs/api#how-to-authenticate-with-the-api",
+      "deepLink": "https://us.posthog.com/me/settings",
+      "test": { "method": "GET", "path": "/api/users/@me" }
+    },
+    {
+      "id": "posthogProjectAPIKey",
+      "displayName": "PostHog Project API Key (ingest-only)",
+      "authType": "apiKey",
+      "fields": [
+        {
+          "name": "apiKey",
+          "displayName": "Project API Key",
+          "type": "password",
+          "required": true,
+          "description": "Client-side ingest key — lives in project settings. Only valid for /capture, /decide, /e endpoints.",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {apiKey}"
+      },
+      "documentationUrl": "https://posthog.com/docs/api/capture"
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "capture-event",
+      "displayName": "Capture Event",
+      "method": "POST",
+      "path": "/capture/",
+      "description": "Ingest a single event (body must include `api_key` + `event` + `distinct_id`).",
+      "bodyContentType": "application/json"
+    },
+    {
+      "id": "list-persons",
+      "displayName": "List Persons",
+      "method": "GET",
+      "path": "/api/projects/{project_id}/persons/",
+      "description": "List people (requires Personal API Key)."
+    },
+    {
+      "id": "list-insights",
+      "displayName": "List Insights",
+      "method": "GET",
+      "path": "/api/projects/{project_id}/insights/",
+      "description": "List saved insights (trends, funnels, retention)."
+    },
+    {
+      "id": "list-feature-flags",
+      "displayName": "List Feature Flags",
+      "method": "GET",
+      "path": "/api/projects/{project_id}/feature_flags/",
+      "description": "List feature flags in the project."
+    }
+  ]
+}

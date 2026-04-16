@@ -1,0 +1,111 @@
+{
+  "serviceId": "zendesk",
+  "displayName": "Zendesk Support",
+  "docsUrl": "https://developer.zendesk.com/api-reference/",
+  "baseUrl": "https://your-subdomain.zendesk.com",
+  "authTypes": [
+    {
+      "id": "zendeskAPIToken",
+      "displayName": "Zendesk API Token (HTTP Basic)",
+      "authType": "basic",
+      "fields": [
+        {
+          "name": "username",
+          "displayName": "Email + '/token'",
+          "type": "string",
+          "required": true,
+          "description": "The Zendesk account email with '/token' appended (e.g. admin@acme.com/token).",
+          "oauthManaged": false
+        },
+        {
+          "name": "password",
+          "displayName": "API Token",
+          "type": "password",
+          "required": true,
+          "description": "Create in Admin > Apps & Integrations > APIs > Zendesk API > 'Add API token'.",
+          "oauthManaged": false
+        },
+        {
+          "name": "subdomain",
+          "displayName": "Zendesk Subdomain",
+          "type": "string",
+          "required": true,
+          "description": "Your Zendesk subdomain (the 'acme' in acme.zendesk.com).",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Basic {base64:username:password}"
+      },
+      "documentationUrl": "https://developer.zendesk.com/api-reference/introduction/security-and-auth/#api-token"
+    },
+    {
+      "id": "zendeskOAuth",
+      "displayName": "Zendesk OAuth 2.0",
+      "authType": "oauth2",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Access Token",
+          "type": "password",
+          "required": true,
+          "oauthManaged": true
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "oauth": {
+        "authorizeUrl": "https://your-subdomain.zendesk.com/oauth/authorizations/new",
+        "tokenUrl": "https://your-subdomain.zendesk.com/oauth/tokens",
+        "scopes": ["read", "write"],
+        "pkce": false,
+        "clientAuthStyle": "body",
+        "redirectPath": "/oauth/callback",
+        "authorizeQueryParams": {}
+      },
+      "documentationUrl": "https://developer.zendesk.com/api-reference/ticketing/oauth2/"
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "list-tickets",
+      "displayName": "List Tickets",
+      "method": "GET",
+      "path": "/api/v2/tickets.json",
+      "description": "List the tickets in the Zendesk instance."
+    },
+    {
+      "id": "create-ticket",
+      "displayName": "Create Ticket",
+      "method": "POST",
+      "path": "/api/v2/tickets.json",
+      "description": "Create a new support ticket.",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "required": ["ticket"],
+        "properties": {
+          "ticket": { "type": "object" }
+        }
+      }
+    },
+    {
+      "id": "update-ticket",
+      "displayName": "Update Ticket",
+      "method": "PUT",
+      "path": "/api/v2/tickets/{ticket_id}.json",
+      "description": "Update a ticket by ID.",
+      "bodyContentType": "application/json"
+    },
+    {
+      "id": "search",
+      "displayName": "Search",
+      "method": "GET",
+      "path": "/api/v2/search.json",
+      "description": "Search across all Zendesk resources (tickets, users, etc.)."
+    }
+  ]
+}

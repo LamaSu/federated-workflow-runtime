@@ -1,0 +1,90 @@
+{
+  "serviceId": "netlify",
+  "displayName": "Netlify",
+  "docsUrl": "https://docs.netlify.com/api/get-started/",
+  "baseUrl": "https://api.netlify.com",
+  "authTypes": [
+    {
+      "id": "netlifyPAT",
+      "displayName": "Netlify Personal Access Token",
+      "authType": "bearer",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Personal Access Token",
+          "type": "password",
+          "required": true,
+          "description": "Create at https://app.netlify.com/user/applications#personal-access-tokens.",
+          "deepLink": "https://app.netlify.com/user/applications#personal-access-tokens",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "documentationUrl": "https://docs.netlify.com/api/get-started/#authentication",
+      "deepLink": "https://app.netlify.com/user/applications#personal-access-tokens",
+      "test": { "method": "GET", "path": "/api/v1/user" }
+    },
+    {
+      "id": "netlifyOAuth",
+      "displayName": "Netlify OAuth 2.0",
+      "authType": "oauth2",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Access Token",
+          "type": "password",
+          "required": true,
+          "oauthManaged": true
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "oauth": {
+        "authorizeUrl": "https://app.netlify.com/authorize",
+        "tokenUrl": "https://api.netlify.com/oauth/token",
+        "scopes": [],
+        "pkce": false,
+        "clientAuthStyle": "body",
+        "redirectPath": "/oauth/callback",
+        "authorizeQueryParams": { "response_type": "code" }
+      },
+      "documentationUrl": "https://docs.netlify.com/api/get-started/#oauth2"
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "list-sites",
+      "displayName": "List Sites",
+      "method": "GET",
+      "path": "/api/v1/sites",
+      "description": "List all sites the token has access to."
+    },
+    {
+      "id": "create-site",
+      "displayName": "Create Site",
+      "method": "POST",
+      "path": "/api/v1/sites",
+      "description": "Create a new Netlify site.",
+      "bodyContentType": "application/json"
+    },
+    {
+      "id": "get-site",
+      "displayName": "Get Site",
+      "method": "GET",
+      "path": "/api/v1/sites/{site_id}",
+      "description": "Retrieve a site by ID."
+    },
+    {
+      "id": "list-deploys",
+      "displayName": "List Deploys",
+      "method": "GET",
+      "path": "/api/v1/sites/{site_id}/deploys",
+      "description": "List recent deploys for a site."
+    }
+  ]
+}

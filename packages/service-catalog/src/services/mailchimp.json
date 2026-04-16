@@ -1,0 +1,117 @@
+{
+  "serviceId": "mailchimp",
+  "displayName": "Mailchimp Marketing",
+  "docsUrl": "https://mailchimp.com/developer/marketing/api/",
+  "baseUrl": "https://usX.api.mailchimp.com",
+  "authTypes": [
+    {
+      "id": "mailchimpBasic",
+      "displayName": "Mailchimp API Key (HTTP Basic)",
+      "authType": "basic",
+      "fields": [
+        {
+          "name": "username",
+          "displayName": "Username",
+          "type": "string",
+          "required": true,
+          "description": "Any string — Mailchimp ignores the username. 'anystring' is conventional.",
+          "default": "anystring",
+          "oauthManaged": false
+        },
+        {
+          "name": "password",
+          "displayName": "API Key",
+          "type": "password",
+          "required": true,
+          "description": "Mailchimp API key — looks like 'abc123def456-us21'. The '-us21' suffix is the data-center subdomain.",
+          "deepLink": "https://us1.admin.mailchimp.com/account/api/",
+          "pattern": "-us\\d+$",
+          "oauthManaged": false
+        },
+        {
+          "name": "dataCenter",
+          "displayName": "Data Center",
+          "type": "string",
+          "required": true,
+          "description": "The 'usX' portion from the end of your API key (e.g. 'us21'). Used to override the baseUrl.",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Basic {base64:username:password}"
+      },
+      "documentationUrl": "https://mailchimp.com/developer/marketing/guides/quick-start/#make-your-first-api-call",
+      "deepLink": "https://us1.admin.mailchimp.com/account/api/",
+      "test": { "method": "GET", "path": "/3.0/ping" }
+    },
+    {
+      "id": "mailchimpOAuth",
+      "displayName": "Mailchimp OAuth 2.0",
+      "authType": "oauth2",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Access Token",
+          "type": "password",
+          "required": true,
+          "oauthManaged": true
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "oauth": {
+        "authorizeUrl": "https://login.mailchimp.com/oauth2/authorize",
+        "tokenUrl": "https://login.mailchimp.com/oauth2/token",
+        "scopes": [],
+        "pkce": false,
+        "clientAuthStyle": "body",
+        "redirectPath": "/oauth/callback",
+        "authorizeQueryParams": {}
+      },
+      "documentationUrl": "https://mailchimp.com/developer/marketing/guides/access-user-data-oauth-2/"
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "ping",
+      "displayName": "Ping",
+      "method": "GET",
+      "path": "/3.0/ping",
+      "description": "Health check — returns 'Everything's Chimpy!'."
+    },
+    {
+      "id": "list-audiences",
+      "displayName": "List Audiences (Lists)",
+      "method": "GET",
+      "path": "/3.0/lists",
+      "description": "List the audiences (formerly 'lists') in your Mailchimp account."
+    },
+    {
+      "id": "add-list-member",
+      "displayName": "Add List Member",
+      "method": "POST",
+      "path": "/3.0/lists/{list_id}/members",
+      "description": "Subscribe a new contact to an audience.",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "required": ["email_address", "status"],
+        "properties": {
+          "email_address": { "type": "string" },
+          "status": { "type": "string", "enum": ["subscribed", "unsubscribed", "cleaned", "pending"] },
+          "merge_fields": { "type": "object" }
+        }
+      }
+    },
+    {
+      "id": "send-campaign",
+      "displayName": "Send Campaign",
+      "method": "POST",
+      "path": "/3.0/campaigns/{campaign_id}/actions/send",
+      "description": "Send a saved campaign to the assigned audience."
+    }
+  ]
+}

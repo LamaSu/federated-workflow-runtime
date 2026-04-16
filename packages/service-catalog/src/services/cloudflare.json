@@ -1,0 +1,100 @@
+{
+  "serviceId": "cloudflare",
+  "displayName": "Cloudflare",
+  "docsUrl": "https://developers.cloudflare.com/api/",
+  "baseUrl": "https://api.cloudflare.com",
+  "authTypes": [
+    {
+      "id": "cloudflareAPIToken",
+      "displayName": "Cloudflare API Token (scoped)",
+      "authType": "bearer",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "API Token",
+          "type": "password",
+          "required": true,
+          "description": "Scoped API Token — create at https://dash.cloudflare.com/profile/api-tokens. Preferred over legacy Global API Key.",
+          "deepLink": "https://dash.cloudflare.com/profile/api-tokens",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "documentationUrl": "https://developers.cloudflare.com/fundamentals/api/get-started/create-token/",
+      "deepLink": "https://dash.cloudflare.com/profile/api-tokens",
+      "test": { "method": "GET", "path": "/client/v4/user/tokens/verify" }
+    },
+    {
+      "id": "cloudflareGlobalKey",
+      "displayName": "Cloudflare Legacy Global API Key",
+      "authType": "apiKey",
+      "fields": [
+        {
+          "name": "apiKey",
+          "displayName": "Global API Key",
+          "type": "password",
+          "required": true,
+          "description": "Legacy global key — grants full account access. Prefer scoped tokens.",
+          "oauthManaged": false
+        },
+        {
+          "name": "email",
+          "displayName": "Account Email",
+          "type": "string",
+          "required": true,
+          "description": "Your Cloudflare account email — used in X-Auth-Email.",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "X-Auth-Key",
+        "format": "{apiKey}"
+      },
+      "documentationUrl": "https://developers.cloudflare.com/fundamentals/api/get-started/keys/"
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "list-zones",
+      "displayName": "List Zones",
+      "method": "GET",
+      "path": "/client/v4/zones",
+      "description": "List the DNS zones the token can see."
+    },
+    {
+      "id": "list-dns-records",
+      "displayName": "List DNS Records",
+      "method": "GET",
+      "path": "/client/v4/zones/{zone_id}/dns_records",
+      "description": "List DNS records in a zone."
+    },
+    {
+      "id": "create-dns-record",
+      "displayName": "Create DNS Record",
+      "method": "POST",
+      "path": "/client/v4/zones/{zone_id}/dns_records",
+      "description": "Create a DNS record.",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "required": ["type", "name", "content"],
+        "properties": {
+          "type": { "type": "string" },
+          "name": { "type": "string" },
+          "content": { "type": "string" },
+          "ttl": { "type": "number" }
+        }
+      }
+    },
+    {
+      "id": "verify-token",
+      "displayName": "Verify Token",
+      "method": "GET",
+      "path": "/client/v4/user/tokens/verify",
+      "description": "Verify that an API token is valid."
+    }
+  ]
+}

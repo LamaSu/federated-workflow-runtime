@@ -1,0 +1,112 @@
+{
+  "serviceId": "hubspot",
+  "displayName": "HubSpot",
+  "docsUrl": "https://developers.hubspot.com/docs/api/overview",
+  "baseUrl": "https://api.hubapi.com",
+  "authTypes": [
+    {
+      "id": "hubspotPrivateApp",
+      "displayName": "HubSpot Private App Access Token",
+      "authType": "bearer",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Access Token",
+          "type": "password",
+          "required": true,
+          "description": "Create a Private App in Settings > Integrations > Private Apps, then copy the access token. Starts with 'pat-na'.",
+          "deepLink": "https://app.hubspot.com/private-apps",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "documentationUrl": "https://developers.hubspot.com/docs/api/private-apps",
+      "deepLink": "https://app.hubspot.com/private-apps",
+      "test": { "method": "GET", "path": "/oauth/v1/access-tokens/info" }
+    },
+    {
+      "id": "hubspotOAuth",
+      "displayName": "HubSpot OAuth 2.0",
+      "authType": "oauth2",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Access Token",
+          "type": "password",
+          "required": true,
+          "oauthManaged": true
+        },
+        {
+          "name": "refreshToken",
+          "displayName": "Refresh Token",
+          "type": "password",
+          "required": false,
+          "oauthManaged": true
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "oauth": {
+        "authorizeUrl": "https://app.hubspot.com/oauth/authorize",
+        "tokenUrl": "https://api.hubapi.com/oauth/v1/token",
+        "scopes": ["crm.objects.contacts.read", "crm.objects.contacts.write"],
+        "pkce": false,
+        "clientAuthStyle": "body",
+        "redirectPath": "/oauth/callback",
+        "authorizeQueryParams": {}
+      },
+      "documentationUrl": "https://developers.hubspot.com/docs/api/oauth-quickstart-guide"
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "list-contacts",
+      "displayName": "List Contacts",
+      "method": "GET",
+      "path": "/crm/v3/objects/contacts",
+      "description": "List CRM contacts."
+    },
+    {
+      "id": "create-contact",
+      "displayName": "Create Contact",
+      "method": "POST",
+      "path": "/crm/v3/objects/contacts",
+      "description": "Create a new contact in the CRM.",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "required": ["properties"],
+        "properties": {
+          "properties": { "type": "object" }
+        }
+      }
+    },
+    {
+      "id": "get-contact",
+      "displayName": "Get Contact",
+      "method": "GET",
+      "path": "/crm/v3/objects/contacts/{contactId}",
+      "description": "Retrieve a contact by ID."
+    },
+    {
+      "id": "search-contacts",
+      "displayName": "Search Contacts",
+      "method": "POST",
+      "path": "/crm/v3/objects/contacts/search",
+      "description": "Filter contacts with the CRM Search API.",
+      "bodyContentType": "application/json"
+    },
+    {
+      "id": "list-deals",
+      "displayName": "List Deals",
+      "method": "GET",
+      "path": "/crm/v3/objects/deals",
+      "description": "List deals in the CRM."
+    }
+  ]
+}

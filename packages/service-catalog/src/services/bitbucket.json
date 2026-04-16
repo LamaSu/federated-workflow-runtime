@@ -1,0 +1,105 @@
+{
+  "serviceId": "bitbucket",
+  "displayName": "Bitbucket Cloud",
+  "docsUrl": "https://developer.atlassian.com/cloud/bitbucket/rest/intro/",
+  "baseUrl": "https://api.bitbucket.org",
+  "authTypes": [
+    {
+      "id": "bitbucketAppPassword",
+      "displayName": "Bitbucket App Password (HTTP Basic)",
+      "authType": "basic",
+      "fields": [
+        {
+          "name": "username",
+          "displayName": "Bitbucket Username",
+          "type": "string",
+          "required": true,
+          "description": "Your Bitbucket workspace username — NOT your email.",
+          "oauthManaged": false
+        },
+        {
+          "name": "password",
+          "displayName": "App Password",
+          "type": "password",
+          "required": true,
+          "description": "Create at https://bitbucket.org/account/settings/app-passwords/.",
+          "deepLink": "https://bitbucket.org/account/settings/app-passwords/",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Basic {base64:username:password}"
+      },
+      "documentationUrl": "https://support.atlassian.com/bitbucket-cloud/docs/app-passwords/",
+      "deepLink": "https://bitbucket.org/account/settings/app-passwords/",
+      "test": { "method": "GET", "path": "/2.0/user" }
+    },
+    {
+      "id": "bitbucketOAuth",
+      "displayName": "Bitbucket OAuth 2.0",
+      "authType": "oauth2",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Access Token",
+          "type": "password",
+          "required": true,
+          "oauthManaged": true
+        },
+        {
+          "name": "refreshToken",
+          "displayName": "Refresh Token",
+          "type": "password",
+          "required": false,
+          "oauthManaged": true
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "oauth": {
+        "authorizeUrl": "https://bitbucket.org/site/oauth2/authorize",
+        "tokenUrl": "https://bitbucket.org/site/oauth2/access_token",
+        "scopes": [],
+        "pkce": false,
+        "clientAuthStyle": "body",
+        "redirectPath": "/oauth/callback",
+        "authorizeQueryParams": {}
+      },
+      "documentationUrl": "https://developer.atlassian.com/cloud/bitbucket/oauth-2/"
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "get-user",
+      "displayName": "Get Current User",
+      "method": "GET",
+      "path": "/2.0/user",
+      "description": "Retrieve the currently authenticated user."
+    },
+    {
+      "id": "list-repositories",
+      "displayName": "List Repositories (Workspace)",
+      "method": "GET",
+      "path": "/2.0/repositories/{workspace}",
+      "description": "List repositories in a workspace."
+    },
+    {
+      "id": "list-pull-requests",
+      "displayName": "List Pull Requests",
+      "method": "GET",
+      "path": "/2.0/repositories/{workspace}/{repo_slug}/pullrequests",
+      "description": "List pull requests on a repository."
+    },
+    {
+      "id": "create-pull-request",
+      "displayName": "Create Pull Request",
+      "method": "POST",
+      "path": "/2.0/repositories/{workspace}/{repo_slug}/pullrequests",
+      "description": "Open a new pull request.",
+      "bodyContentType": "application/json"
+    }
+  ]
+}

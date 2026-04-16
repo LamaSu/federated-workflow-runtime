@@ -1,0 +1,98 @@
+{
+  "serviceId": "shopify",
+  "displayName": "Shopify Admin",
+  "docsUrl": "https://shopify.dev/docs/api/admin-rest",
+  "baseUrl": "https://your-shop.myshopify.com",
+  "authTypes": [
+    {
+      "id": "shopifyAdminToken",
+      "displayName": "Shopify Admin API Access Token (custom app)",
+      "authType": "apiKey",
+      "fields": [
+        {
+          "name": "apiKey",
+          "displayName": "Admin API Access Token",
+          "type": "password",
+          "required": true,
+          "description": "Install a custom app in Shopify admin > Apps > Develop apps > API credentials. Starts with 'shpat_'.",
+          "deepLink": "https://help.shopify.com/en/manual/apps/app-types/custom-apps",
+          "pattern": "^shpat_",
+          "oauthManaged": false
+        },
+        {
+          "name": "shopDomain",
+          "displayName": "Shop Domain",
+          "type": "string",
+          "required": true,
+          "description": "Your myshopify.com domain (e.g. acme.myshopify.com). Used to override the catalog baseUrl.",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "X-Shopify-Access-Token",
+        "format": "{apiKey}"
+      },
+      "documentationUrl": "https://shopify.dev/docs/api/usage/authentication",
+      "test": { "method": "GET", "path": "/admin/api/2024-10/shop.json" }
+    },
+    {
+      "id": "shopifyOAuth",
+      "displayName": "Shopify OAuth 2.0 (public apps)",
+      "authType": "oauth2",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Access Token",
+          "type": "password",
+          "required": true,
+          "oauthManaged": true
+        }
+      ],
+      "authHeader": {
+        "name": "X-Shopify-Access-Token",
+        "format": "{accessToken}"
+      },
+      "oauth": {
+        "authorizeUrl": "https://your-shop.myshopify.com/admin/oauth/authorize",
+        "tokenUrl": "https://your-shop.myshopify.com/admin/oauth/access_token",
+        "scopes": ["read_products", "write_products"],
+        "pkce": false,
+        "clientAuthStyle": "body",
+        "redirectPath": "/oauth/callback",
+        "authorizeQueryParams": {}
+      },
+      "documentationUrl": "https://shopify.dev/docs/apps/auth/oauth"
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "list-products",
+      "displayName": "List Products",
+      "method": "GET",
+      "path": "/admin/api/2024-10/products.json",
+      "description": "List the products in the store."
+    },
+    {
+      "id": "create-product",
+      "displayName": "Create Product",
+      "method": "POST",
+      "path": "/admin/api/2024-10/products.json",
+      "description": "Create a new product.",
+      "bodyContentType": "application/json"
+    },
+    {
+      "id": "list-orders",
+      "displayName": "List Orders",
+      "method": "GET",
+      "path": "/admin/api/2024-10/orders.json",
+      "description": "List orders — add ?status=any to include fulfilled."
+    },
+    {
+      "id": "get-shop",
+      "displayName": "Get Shop",
+      "method": "GET",
+      "path": "/admin/api/2024-10/shop.json",
+      "description": "Retrieve the shop's configuration — useful as a health check."
+    }
+  ]
+}

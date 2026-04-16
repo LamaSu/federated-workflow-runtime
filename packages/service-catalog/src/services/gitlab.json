@@ -1,0 +1,107 @@
+{
+  "serviceId": "gitlab",
+  "displayName": "GitLab",
+  "docsUrl": "https://docs.gitlab.com/ee/api/rest/",
+  "baseUrl": "https://gitlab.com",
+  "authTypes": [
+    {
+      "id": "gitlabPAT",
+      "displayName": "GitLab Personal Access Token",
+      "authType": "bearer",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Personal Access Token",
+          "type": "password",
+          "required": true,
+          "description": "Create at https://gitlab.com/-/user_settings/personal_access_tokens. Starts with 'glpat-'.",
+          "deepLink": "https://gitlab.com/-/user_settings/personal_access_tokens",
+          "pattern": "^glpat-",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "documentationUrl": "https://docs.gitlab.com/ee/security/tokens/",
+      "deepLink": "https://gitlab.com/-/user_settings/personal_access_tokens",
+      "test": { "method": "GET", "path": "/api/v4/user" }
+    },
+    {
+      "id": "gitlabOAuth",
+      "displayName": "GitLab OAuth 2.0",
+      "authType": "oauth2",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Access Token",
+          "type": "password",
+          "required": true,
+          "oauthManaged": true
+        },
+        {
+          "name": "refreshToken",
+          "displayName": "Refresh Token",
+          "type": "password",
+          "required": false,
+          "oauthManaged": true
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "oauth": {
+        "authorizeUrl": "https://gitlab.com/oauth/authorize",
+        "tokenUrl": "https://gitlab.com/oauth/token",
+        "scopes": ["api"],
+        "pkce": true,
+        "clientAuthStyle": "body",
+        "redirectPath": "/oauth/callback",
+        "authorizeQueryParams": {}
+      },
+      "documentationUrl": "https://docs.gitlab.com/ee/api/oauth2.html"
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "get-user",
+      "displayName": "Get Current User",
+      "method": "GET",
+      "path": "/api/v4/user",
+      "description": "Get the currently authenticated user's profile."
+    },
+    {
+      "id": "list-projects",
+      "displayName": "List Projects",
+      "method": "GET",
+      "path": "/api/v4/projects",
+      "description": "List the projects visible to the user."
+    },
+    {
+      "id": "create-issue",
+      "displayName": "Create Issue",
+      "method": "POST",
+      "path": "/api/v4/projects/{id}/issues",
+      "description": "Open a new issue on a project (id is URL-encoded path or numeric).",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "required": ["title"],
+        "properties": {
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "labels": { "type": "string" }
+        }
+      }
+    },
+    {
+      "id": "list-merge-requests",
+      "displayName": "List Merge Requests",
+      "method": "GET",
+      "path": "/api/v4/projects/{id}/merge_requests",
+      "description": "List merge requests on a project."
+    }
+  ]
+}

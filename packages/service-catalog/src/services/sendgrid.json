@@ -1,0 +1,66 @@
+{
+  "serviceId": "sendgrid",
+  "displayName": "SendGrid",
+  "docsUrl": "https://docs.sendgrid.com/api-reference",
+  "baseUrl": "https://api.sendgrid.com",
+  "authTypes": [
+    {
+      "id": "sendgridAPIKey",
+      "displayName": "SendGrid API Key",
+      "authType": "bearer",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "API Key",
+          "type": "password",
+          "required": true,
+          "description": "Create at https://app.sendgrid.com/settings/api_keys. Starts with 'SG.'.",
+          "deepLink": "https://app.sendgrid.com/settings/api_keys",
+          "pattern": "^SG\\.",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "documentationUrl": "https://docs.sendgrid.com/ui/account-and-settings/api-keys",
+      "deepLink": "https://app.sendgrid.com/settings/api_keys",
+      "test": { "method": "GET", "path": "/v3/user/profile" }
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "send-mail",
+      "displayName": "Send Mail",
+      "method": "POST",
+      "path": "/v3/mail/send",
+      "description": "Send an email via the SendGrid v3 Mail Send API.",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "required": ["personalizations", "from", "subject", "content"],
+        "properties": {
+          "personalizations": { "type": "array" },
+          "from": { "type": "object" },
+          "subject": { "type": "string" },
+          "content": { "type": "array" }
+        }
+      }
+    },
+    {
+      "id": "list-templates",
+      "displayName": "List Dynamic Templates",
+      "method": "GET",
+      "path": "/v3/templates",
+      "description": "List transactional and dynamic templates."
+    },
+    {
+      "id": "get-stats",
+      "displayName": "Get Global Stats",
+      "method": "GET",
+      "path": "/v3/stats",
+      "description": "Retrieve aggregated email stats (opens, clicks, bounces)."
+    }
+  ]
+}

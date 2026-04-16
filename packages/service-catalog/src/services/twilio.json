@@ -1,0 +1,119 @@
+{
+  "serviceId": "twilio",
+  "displayName": "Twilio",
+  "docsUrl": "https://www.twilio.com/docs/usage/api",
+  "baseUrl": "https://api.twilio.com",
+  "authTypes": [
+    {
+      "id": "twilioBasic",
+      "displayName": "Twilio Account SID + Auth Token (HTTP Basic)",
+      "authType": "basic",
+      "fields": [
+        {
+          "name": "username",
+          "displayName": "Account SID",
+          "type": "string",
+          "required": true,
+          "description": "Twilio Account SID (ACxxxxxxxx). Used as the HTTP Basic username.",
+          "deepLink": "https://console.twilio.com/",
+          "pattern": "^AC",
+          "oauthManaged": false
+        },
+        {
+          "name": "password",
+          "displayName": "Auth Token",
+          "type": "password",
+          "required": true,
+          "description": "Twilio Auth Token (hex). Used as the HTTP Basic password. Rotate via the console if leaked.",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Basic {base64:username:password}"
+      },
+      "documentationUrl": "https://www.twilio.com/docs/usage/requests-to-twilio",
+      "deepLink": "https://console.twilio.com/"
+    },
+    {
+      "id": "twilioApiKey",
+      "displayName": "Twilio API Key + Secret",
+      "authType": "basic",
+      "fields": [
+        {
+          "name": "username",
+          "displayName": "API Key SID",
+          "type": "string",
+          "required": true,
+          "description": "Twilio API Key SID (SKxxxx). Preferred over raw Auth Token for production.",
+          "deepLink": "https://console.twilio.com/us1/account/keys-credentials/api-keys",
+          "pattern": "^SK",
+          "oauthManaged": false
+        },
+        {
+          "name": "password",
+          "displayName": "API Key Secret",
+          "type": "password",
+          "required": true,
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Basic {base64:username:password}"
+      },
+      "documentationUrl": "https://www.twilio.com/docs/iam/api-keys"
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "send-sms",
+      "displayName": "Send SMS / MMS",
+      "method": "POST",
+      "path": "/2010-04-01/Accounts/{AccountSid}/Messages.json",
+      "description": "Send an SMS or MMS message from a Twilio number.",
+      "bodyContentType": "application/x-www-form-urlencoded",
+      "inputSchema": {
+        "type": "object",
+        "required": ["To", "From", "Body"],
+        "properties": {
+          "To": { "type": "string" },
+          "From": { "type": "string" },
+          "Body": { "type": "string" },
+          "MediaUrl": { "type": "string" }
+        }
+      }
+    },
+    {
+      "id": "list-messages",
+      "displayName": "List Messages",
+      "method": "GET",
+      "path": "/2010-04-01/Accounts/{AccountSid}/Messages.json",
+      "description": "List messages sent/received by this account."
+    },
+    {
+      "id": "make-call",
+      "displayName": "Make Call",
+      "method": "POST",
+      "path": "/2010-04-01/Accounts/{AccountSid}/Calls.json",
+      "description": "Place an outbound voice call via TwiML URL.",
+      "bodyContentType": "application/x-www-form-urlencoded",
+      "inputSchema": {
+        "type": "object",
+        "required": ["To", "From", "Url"],
+        "properties": {
+          "To": { "type": "string" },
+          "From": { "type": "string" },
+          "Url": { "type": "string" }
+        }
+      }
+    },
+    {
+      "id": "get-account",
+      "displayName": "Get Account",
+      "method": "GET",
+      "path": "/2010-04-01/Accounts/{AccountSid}.json",
+      "description": "Fetch account details — used as a health check."
+    }
+  ]
+}

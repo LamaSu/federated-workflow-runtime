@@ -1,0 +1,105 @@
+{
+  "serviceId": "google-sheets",
+  "displayName": "Google Sheets",
+  "docsUrl": "https://developers.google.com/sheets/api/reference/rest",
+  "baseUrl": "https://sheets.googleapis.com",
+  "authTypes": [
+    {
+      "id": "googleSheetsOAuth",
+      "displayName": "Google OAuth 2.0",
+      "authType": "oauth2",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Access Token",
+          "type": "password",
+          "required": true,
+          "description": "OAuth 2.0 access token (short-lived; refreshed automatically).",
+          "oauthManaged": true
+        },
+        {
+          "name": "refreshToken",
+          "displayName": "Refresh Token",
+          "type": "password",
+          "required": false,
+          "oauthManaged": true
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "oauth": {
+        "authorizeUrl": "https://accounts.google.com/o/oauth2/v2/auth",
+        "tokenUrl": "https://oauth2.googleapis.com/token",
+        "scopes": [
+          "https://www.googleapis.com/auth/spreadsheets"
+        ],
+        "pkce": true,
+        "clientAuthStyle": "body",
+        "redirectPath": "/oauth/callback",
+        "authorizeQueryParams": {
+          "access_type": "offline",
+          "prompt": "consent"
+        }
+      },
+      "documentationUrl": "https://developers.google.com/sheets/api/guides/authorizing"
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "get-spreadsheet",
+      "displayName": "Get Spreadsheet",
+      "method": "GET",
+      "path": "/v4/spreadsheets/{spreadsheetId}",
+      "description": "Retrieve the metadata (sheets, properties) of a spreadsheet."
+    },
+    {
+      "id": "get-values",
+      "displayName": "Get Range Values",
+      "method": "GET",
+      "path": "/v4/spreadsheets/{spreadsheetId}/values/{range}",
+      "description": "Read a range of cells (A1 notation, URL-encoded)."
+    },
+    {
+      "id": "update-values",
+      "displayName": "Update Range Values",
+      "method": "PUT",
+      "path": "/v4/spreadsheets/{spreadsheetId}/values/{range}",
+      "description": "Overwrite a range of cells with the provided values.",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "required": ["values"],
+        "properties": {
+          "range": { "type": "string" },
+          "majorDimension": { "type": "string" },
+          "values": { "type": "array" }
+        }
+      }
+    },
+    {
+      "id": "append-values",
+      "displayName": "Append Values",
+      "method": "POST",
+      "path": "/v4/spreadsheets/{spreadsheetId}/values/{range}:append",
+      "description": "Append rows after the last row containing data in a range.",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "required": ["values"],
+        "properties": {
+          "values": { "type": "array" }
+        }
+      }
+    },
+    {
+      "id": "clear-values",
+      "displayName": "Clear Range",
+      "method": "POST",
+      "path": "/v4/spreadsheets/{spreadsheetId}/values/{range}:clear",
+      "description": "Clear values from a range (leaves formatting).",
+      "bodyContentType": "application/json"
+    }
+  ]
+}

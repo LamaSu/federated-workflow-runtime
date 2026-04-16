@@ -1,0 +1,100 @@
+{
+  "serviceId": "linear",
+  "displayName": "Linear",
+  "docsUrl": "https://developers.linear.app/docs",
+  "baseUrl": "https://api.linear.app",
+  "authTypes": [
+    {
+      "id": "linearAPIKey",
+      "displayName": "Linear Personal API Key",
+      "authType": "apiKey",
+      "fields": [
+        {
+          "name": "apiKey",
+          "displayName": "API Key",
+          "type": "password",
+          "required": true,
+          "description": "Create at https://linear.app/settings/api. Starts with 'lin_api_'.",
+          "deepLink": "https://linear.app/settings/api",
+          "pattern": "^lin_api_",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "{apiKey}"
+      },
+      "documentationUrl": "https://developers.linear.app/docs/graphql/working-with-the-graphql-api",
+      "deepLink": "https://linear.app/settings/api"
+    },
+    {
+      "id": "linearOAuth",
+      "displayName": "Linear OAuth 2.0",
+      "authType": "oauth2",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Access Token",
+          "type": "password",
+          "required": true,
+          "oauthManaged": true
+        },
+        {
+          "name": "refreshToken",
+          "displayName": "Refresh Token",
+          "type": "password",
+          "required": false,
+          "oauthManaged": true
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "oauth": {
+        "authorizeUrl": "https://linear.app/oauth/authorize",
+        "tokenUrl": "https://api.linear.app/oauth/token",
+        "scopes": ["read", "write"],
+        "pkce": true,
+        "clientAuthStyle": "body",
+        "redirectPath": "/oauth/callback",
+        "authorizeQueryParams": { "prompt": "consent" }
+      },
+      "documentationUrl": "https://developers.linear.app/docs/oauth/authentication"
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "graphql",
+      "displayName": "GraphQL Query / Mutation",
+      "method": "POST",
+      "path": "/graphql",
+      "description": "Execute a GraphQL query or mutation against Linear's API.",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": { "type": "string" },
+          "variables": { "type": "object" }
+        }
+      }
+    },
+    {
+      "id": "viewer",
+      "displayName": "Get Viewer (via GraphQL)",
+      "method": "POST",
+      "path": "/graphql",
+      "description": "Shortcut: run '{ viewer { id email name } }' to identify the authenticated user.",
+      "bodyContentType": "application/json"
+    },
+    {
+      "id": "list-issues",
+      "displayName": "List Issues (via GraphQL)",
+      "method": "POST",
+      "path": "/graphql",
+      "description": "Convenience operation — body should be the Linear 'issues' GraphQL query.",
+      "bodyContentType": "application/json"
+    }
+  ]
+}

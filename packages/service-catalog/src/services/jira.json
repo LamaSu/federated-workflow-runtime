@@ -1,0 +1,123 @@
+{
+  "serviceId": "jira",
+  "displayName": "Jira Cloud",
+  "docsUrl": "https://developer.atlassian.com/cloud/jira/platform/rest/v3/intro/",
+  "baseUrl": "https://your-domain.atlassian.net",
+  "authTypes": [
+    {
+      "id": "jiraBasic",
+      "displayName": "Jira Cloud API Token (HTTP Basic)",
+      "authType": "basic",
+      "fields": [
+        {
+          "name": "username",
+          "displayName": "Atlassian Account Email",
+          "type": "string",
+          "required": true,
+          "description": "The Atlassian account email used as the HTTP Basic username.",
+          "oauthManaged": false
+        },
+        {
+          "name": "password",
+          "displayName": "API Token",
+          "type": "password",
+          "required": true,
+          "description": "Create at https://id.atlassian.com/manage-profile/security/api-tokens. Sent as the HTTP Basic password.",
+          "deepLink": "https://id.atlassian.com/manage-profile/security/api-tokens",
+          "oauthManaged": false
+        },
+        {
+          "name": "siteBaseUrl",
+          "displayName": "Jira Site URL",
+          "type": "url",
+          "required": true,
+          "description": "Your Jira instance URL (e.g. https://acme.atlassian.net). Used to override the catalog baseUrl.",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Basic {base64:username:password}"
+      },
+      "documentationUrl": "https://developer.atlassian.com/cloud/jira/platform/basic-auth-for-rest-apis/",
+      "deepLink": "https://id.atlassian.com/manage-profile/security/api-tokens"
+    },
+    {
+      "id": "jiraOAuth",
+      "displayName": "Atlassian OAuth 2.0 (3LO)",
+      "authType": "oauth2",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Access Token",
+          "type": "password",
+          "required": true,
+          "oauthManaged": true
+        },
+        {
+          "name": "refreshToken",
+          "displayName": "Refresh Token",
+          "type": "password",
+          "required": false,
+          "oauthManaged": true
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "oauth": {
+        "authorizeUrl": "https://auth.atlassian.com/authorize",
+        "tokenUrl": "https://auth.atlassian.com/oauth/token",
+        "scopes": ["read:jira-work", "write:jira-work", "offline_access"],
+        "pkce": true,
+        "clientAuthStyle": "body",
+        "redirectPath": "/oauth/callback",
+        "authorizeQueryParams": { "audience": "api.atlassian.com", "prompt": "consent" }
+      },
+      "documentationUrl": "https://developer.atlassian.com/cloud/jira/platform/oauth-2-3lo-apps/"
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "search-issues",
+      "displayName": "Search Issues (JQL)",
+      "method": "POST",
+      "path": "/rest/api/3/search",
+      "description": "Search for issues using JQL.",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "required": ["jql"],
+        "properties": {
+          "jql": { "type": "string" },
+          "fields": { "type": "array" },
+          "maxResults": { "type": "number" }
+        }
+      }
+    },
+    {
+      "id": "create-issue",
+      "displayName": "Create Issue",
+      "method": "POST",
+      "path": "/rest/api/3/issue",
+      "description": "Create a new issue.",
+      "bodyContentType": "application/json"
+    },
+    {
+      "id": "get-issue",
+      "displayName": "Get Issue",
+      "method": "GET",
+      "path": "/rest/api/3/issue/{issueIdOrKey}",
+      "description": "Retrieve a single issue by ID or key."
+    },
+    {
+      "id": "add-comment",
+      "displayName": "Add Comment",
+      "method": "POST",
+      "path": "/rest/api/3/issue/{issueIdOrKey}/comment",
+      "description": "Add a comment to an issue.",
+      "bodyContentType": "application/json"
+    }
+  ]
+}

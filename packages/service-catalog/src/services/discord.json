@@ -1,0 +1,105 @@
+{
+  "serviceId": "discord",
+  "displayName": "Discord",
+  "docsUrl": "https://discord.com/developers/docs/reference",
+  "baseUrl": "https://discord.com/api",
+  "authTypes": [
+    {
+      "id": "discordBotToken",
+      "displayName": "Discord Bot Token",
+      "authType": "apiKey",
+      "fields": [
+        {
+          "name": "botToken",
+          "displayName": "Bot Token",
+          "type": "password",
+          "required": true,
+          "description": "Create a Discord application, then create a Bot under it, and copy the token. Sent as 'Authorization: Bot <token>'.",
+          "deepLink": "https://discord.com/developers/applications",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bot {botToken}"
+      },
+      "documentationUrl": "https://discord.com/developers/docs/topics/oauth2#bot-authorization-flow",
+      "deepLink": "https://discord.com/developers/applications",
+      "test": { "method": "GET", "path": "/v10/users/@me" }
+    },
+    {
+      "id": "discordOAuth",
+      "displayName": "Discord OAuth 2.0",
+      "authType": "oauth2",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Access Token",
+          "type": "password",
+          "required": true,
+          "oauthManaged": true
+        },
+        {
+          "name": "refreshToken",
+          "displayName": "Refresh Token",
+          "type": "password",
+          "required": false,
+          "oauthManaged": true
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "oauth": {
+        "authorizeUrl": "https://discord.com/oauth2/authorize",
+        "tokenUrl": "https://discord.com/api/oauth2/token",
+        "scopes": ["identify", "guilds"],
+        "pkce": true,
+        "clientAuthStyle": "body",
+        "redirectPath": "/oauth/callback",
+        "authorizeQueryParams": {}
+      },
+      "documentationUrl": "https://discord.com/developers/docs/topics/oauth2"
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "get-current-user",
+      "displayName": "Get Current User",
+      "method": "GET",
+      "path": "/v10/users/@me",
+      "description": "Retrieve the user object of the current bot or OAuth user."
+    },
+    {
+      "id": "create-message",
+      "displayName": "Create Message",
+      "method": "POST",
+      "path": "/v10/channels/{channel_id}/messages",
+      "description": "Post a new message into a channel.",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "content": { "type": "string", "maxLength": 2000 },
+          "embeds": { "type": "array" },
+          "tts": { "type": "boolean" }
+        }
+      }
+    },
+    {
+      "id": "get-channel",
+      "displayName": "Get Channel",
+      "method": "GET",
+      "path": "/v10/channels/{channel_id}",
+      "description": "Retrieve a channel by ID."
+    },
+    {
+      "id": "list-guild-members",
+      "displayName": "List Guild Members",
+      "method": "GET",
+      "path": "/v10/guilds/{guild_id}/members",
+      "description": "List the members of a guild. Requires GUILD_MEMBERS intent."
+    }
+  ]
+}

@@ -1,0 +1,114 @@
+{
+  "serviceId": "airtable",
+  "displayName": "Airtable",
+  "docsUrl": "https://airtable.com/developers/web/api/introduction",
+  "baseUrl": "https://api.airtable.com",
+  "authTypes": [
+    {
+      "id": "airtablePAT",
+      "displayName": "Airtable Personal Access Token",
+      "authType": "bearer",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Personal Access Token",
+          "type": "password",
+          "required": true,
+          "description": "An Airtable PAT (pat*). Create at https://airtable.com/create/tokens. Must grant data.records:read/write + schema.bases:read scopes + the specific base(s) you'll query.",
+          "deepLink": "https://airtable.com/create/tokens",
+          "pattern": "^pat",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "documentationUrl": "https://airtable.com/developers/web/guides/personal-access-tokens",
+      "deepLink": "https://airtable.com/create/tokens",
+      "test": { "method": "GET", "path": "/v0/meta/whoami" }
+    },
+    {
+      "id": "airtableOAuth",
+      "displayName": "Airtable OAuth 2.0",
+      "authType": "oauth2",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Access Token",
+          "type": "password",
+          "required": true,
+          "oauthManaged": true
+        },
+        {
+          "name": "refreshToken",
+          "displayName": "Refresh Token",
+          "type": "password",
+          "required": false,
+          "oauthManaged": true
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "oauth": {
+        "authorizeUrl": "https://airtable.com/oauth2/v1/authorize",
+        "tokenUrl": "https://airtable.com/oauth2/v1/token",
+        "scopes": ["data.records:read", "data.records:write", "schema.bases:read"],
+        "pkce": true,
+        "clientAuthStyle": "header",
+        "redirectPath": "/oauth/callback",
+        "authorizeQueryParams": {}
+      },
+      "documentationUrl": "https://airtable.com/developers/web/api/oauth-reference"
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "list-records",
+      "displayName": "List Records",
+      "method": "GET",
+      "path": "/v0/{baseId}/{tableIdOrName}",
+      "description": "List records in a table. Supports ?view, ?filterByFormula, ?maxRecords, ?pageSize."
+    },
+    {
+      "id": "get-record",
+      "displayName": "Get Record",
+      "method": "GET",
+      "path": "/v0/{baseId}/{tableIdOrName}/{recordId}",
+      "description": "Retrieve a single record by ID."
+    },
+    {
+      "id": "create-records",
+      "displayName": "Create Records",
+      "method": "POST",
+      "path": "/v0/{baseId}/{tableIdOrName}",
+      "description": "Create up to 10 records in a single call.",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "required": ["records"],
+        "properties": {
+          "records": { "type": "array" },
+          "typecast": { "type": "boolean" }
+        }
+      }
+    },
+    {
+      "id": "update-record",
+      "displayName": "Update Record",
+      "method": "PATCH",
+      "path": "/v0/{baseId}/{tableIdOrName}/{recordId}",
+      "description": "Partial update of a single record.",
+      "bodyContentType": "application/json"
+    },
+    {
+      "id": "delete-record",
+      "displayName": "Delete Record",
+      "method": "DELETE",
+      "path": "/v0/{baseId}/{tableIdOrName}/{recordId}",
+      "description": "Delete a single record."
+    }
+  ]
+}

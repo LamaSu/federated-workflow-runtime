@@ -1,0 +1,79 @@
+{
+  "serviceId": "telegram",
+  "displayName": "Telegram Bot",
+  "docsUrl": "https://core.telegram.org/bots/api",
+  "baseUrl": "https://api.telegram.org",
+  "authTypes": [
+    {
+      "id": "telegramBotToken",
+      "displayName": "Telegram Bot Token",
+      "authType": "apiKey",
+      "fields": [
+        {
+          "name": "botToken",
+          "displayName": "Bot Token",
+          "type": "password",
+          "required": true,
+          "description": "Chat with @BotFather on Telegram, run /newbot, follow prompts, copy the token. Format: 'digits:base64' (e.g. 123456789:ABCdefGhIjKlMnOp).",
+          "deepLink": "https://t.me/BotFather",
+          "pattern": "^[0-9]+:",
+          "oauthManaged": false
+        }
+      ],
+      "documentationUrl": "https://core.telegram.org/bots#how-do-i-create-a-bot",
+      "deepLink": "https://t.me/BotFather",
+      "test": { "method": "GET", "path": "/bot{botToken}/getMe" }
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "get-me",
+      "displayName": "Get Me",
+      "method": "GET",
+      "path": "/bot{botToken}/getMe",
+      "description": "Test the bot token and return basic information about the bot."
+    },
+    {
+      "id": "send-message",
+      "displayName": "Send Message",
+      "method": "POST",
+      "path": "/bot{botToken}/sendMessage",
+      "description": "Send a text message to a chat.",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "required": ["chat_id", "text"],
+        "properties": {
+          "chat_id": { "type": ["string", "number"] },
+          "text": { "type": "string", "maxLength": 4096 },
+          "parse_mode": { "type": "string", "enum": ["HTML", "Markdown", "MarkdownV2"] },
+          "disable_notification": { "type": "boolean" }
+        }
+      }
+    },
+    {
+      "id": "send-photo",
+      "displayName": "Send Photo",
+      "method": "POST",
+      "path": "/bot{botToken}/sendPhoto",
+      "description": "Send a photo by URL or file_id to a chat.",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "required": ["chat_id", "photo"],
+        "properties": {
+          "chat_id": { "type": ["string", "number"] },
+          "photo": { "type": "string" },
+          "caption": { "type": "string" }
+        }
+      }
+    },
+    {
+      "id": "get-updates",
+      "displayName": "Get Updates",
+      "method": "GET",
+      "path": "/bot{botToken}/getUpdates",
+      "description": "Poll for incoming updates (use webhooks for production)."
+    }
+  ]
+}

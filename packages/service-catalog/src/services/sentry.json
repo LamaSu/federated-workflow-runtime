@@ -1,0 +1,66 @@
+{
+  "serviceId": "sentry",
+  "displayName": "Sentry",
+  "docsUrl": "https://docs.sentry.io/api/",
+  "baseUrl": "https://sentry.io",
+  "authTypes": [
+    {
+      "id": "sentryAuthToken",
+      "displayName": "Sentry Auth Token",
+      "authType": "bearer",
+      "fields": [
+        {
+          "name": "accessToken",
+          "displayName": "Auth Token",
+          "type": "password",
+          "required": true,
+          "description": "Create a User Auth Token or an Internal Integration Token. Starts with 'sntrys_' (org) or 'sntryu_' (user).",
+          "deepLink": "https://sentry.io/settings/account/api/auth-tokens/",
+          "pattern": "^sntry",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Bearer {accessToken}"
+      },
+      "documentationUrl": "https://docs.sentry.io/api/auth/",
+      "deepLink": "https://sentry.io/settings/account/api/auth-tokens/"
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "list-organizations",
+      "displayName": "List Organizations",
+      "method": "GET",
+      "path": "/api/0/organizations/",
+      "description": "List organizations the auth token has access to."
+    },
+    {
+      "id": "list-projects",
+      "displayName": "List Projects",
+      "method": "GET",
+      "path": "/api/0/organizations/{organization_slug}/projects/",
+      "description": "List projects in an organization."
+    },
+    {
+      "id": "list-issues",
+      "displayName": "List Issues",
+      "method": "GET",
+      "path": "/api/0/projects/{organization_slug}/{project_slug}/issues/",
+      "description": "List issues in a project (Sentry calls these 'groups')."
+    },
+    {
+      "id": "resolve-issue",
+      "displayName": "Resolve Issue",
+      "method": "PUT",
+      "path": "/api/0/issues/{issue_id}/",
+      "description": "Mark an issue as resolved.",
+      "bodyContentType": "application/json",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "status": { "type": "string", "enum": ["resolved", "unresolved", "ignored"] } }
+      }
+    }
+  ]
+}

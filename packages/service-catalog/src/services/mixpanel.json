@@ -1,0 +1,70 @@
+{
+  "serviceId": "mixpanel",
+  "displayName": "Mixpanel",
+  "docsUrl": "https://developer.mixpanel.com/reference/overview",
+  "baseUrl": "https://api.mixpanel.com",
+  "authTypes": [
+    {
+      "id": "mixpanelServiceAccount",
+      "displayName": "Mixpanel Service Account (HTTP Basic)",
+      "authType": "basic",
+      "fields": [
+        {
+          "name": "username",
+          "displayName": "Service Account Username",
+          "type": "string",
+          "required": true,
+          "description": "Service account username (format: 'name.serviceaccount'). Create in Mixpanel Organization settings.",
+          "deepLink": "https://mixpanel.com/settings/project",
+          "oauthManaged": false
+        },
+        {
+          "name": "password",
+          "displayName": "Service Account Secret",
+          "type": "password",
+          "required": true,
+          "oauthManaged": false
+        },
+        {
+          "name": "projectId",
+          "displayName": "Project ID",
+          "type": "string",
+          "required": false,
+          "description": "Required for most endpoints — append as ?project_id= or use per-request.",
+          "oauthManaged": false
+        }
+      ],
+      "authHeader": {
+        "name": "Authorization",
+        "format": "Basic {base64:username:password}"
+      },
+      "documentationUrl": "https://developer.mixpanel.com/reference/service-accounts",
+      "deepLink": "https://mixpanel.com/settings/project"
+    }
+  ],
+  "commonOperations": [
+    {
+      "id": "track-event",
+      "displayName": "Track Event",
+      "method": "POST",
+      "path": "/track",
+      "description": "Send an event to Mixpanel. Body is a base64-encoded JSON payload or application/json.",
+      "bodyContentType": "application/json"
+    },
+    {
+      "id": "engage",
+      "displayName": "People Engage",
+      "method": "POST",
+      "path": "/engage",
+      "description": "Update a user profile property.",
+      "bodyContentType": "application/json"
+    },
+    {
+      "id": "query-events",
+      "displayName": "Query Events (Insights)",
+      "method": "GET",
+      "path": "/query/insights",
+      "description": "Run a saved Insights report (requires Service Account)."
+    }
+  ]
+}
