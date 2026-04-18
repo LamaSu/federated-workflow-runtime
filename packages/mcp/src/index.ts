@@ -60,3 +60,17 @@ export {
   HttpCredentialServiceClient,
   type HttpCredentialServiceClientOptions,
 } from "./credential-client.js";
+
+export {
+  GENERATE_DASHBOARD_TOOL_NAME,
+  SERVER_LEVEL_TOOLS,
+  generateDashboardTool,
+  handleGenerateDashboard,
+  dispatchServerTool,
+  type GenerateDashboardInput,
+  type GenerateDashboardOutput,
+  type HandleGenerateDashboardDeps,
+  type DashboardGenerator,
+  type ServerToolDispatchEnvelope,
+  type ServerToolDispatchResult,
+} from "./tools.js";

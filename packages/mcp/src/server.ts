@@ -156,6 +156,32 @@ export interface ChorusMcpServerOptions {
    * `chorus-<integration.name>` / `integration.version`.
    */
   serverInfo?: { name?: string; version?: string };
+  /**
+   * Server-level tools to expose ALONGSIDE the integration's tools. These
+   * are not scoped to any integration — they talk to the runtime or the
+   * host process. Example: `generate_dashboard` from ./tools.ts.
+   *
+   * When omitted, only integration tools are exposed (the legacy
+   * behavior). When supplied, the `serverToolDispatcher` MUST be given
+   * too; calls to these tools route through it.
+   */
+  serverTools?: Array<{
+    name: string;
+    description: string;
+    inputSchema: Record<string, unknown>;
+  }>;
+  /**
+   * Dispatcher for server-level tools. Receives `{tool, args}` and
+   * returns an MCP content envelope. See `./tools.ts`'s
+   * `dispatchServerTool` for the canonical shape.
+   */
+  serverToolDispatcher?: (env: {
+    tool: string;
+    args: Record<string, unknown>;
+  }) => Promise<{
+    isError: boolean;
+    content: Array<{ type: "text"; text: string }>;
+  }>;
 }
 
 /**
@@ -195,16 +221,35 @@ export async function buildChorusMcpServer(opts: ChorusMcpServerOptions): Promis
     },
   );
 
-  // tools/list — strip internal _chorus bindings before returning.
+  const serverLevel = opts.serverTools ?? [];
+  const serverLevelNames = new Set(serverLevel.map((t) => t.name));
+
+  // tools/list — strip internal _chorus bindings before returning, then
+  // append any server-level tools (e.g. generate_dashboard).
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: tools.map(stripInternalBinding),
+    tools: [...tools.map(stripInternalBinding), ...serverLevel],
   }));
 
-  // tools/call — dispatch to operation or credential handler.
+  // tools/call — dispatch to operation / credential / server-level handler.
   server.setRequestHandler(CallToolRequestSchema, async (req: unknown) => {
     const { name, arguments: args } = (req as {
       params: { name: string; arguments?: Record<string, unknown> };
     }).params;
+    if (serverLevelNames.has(name)) {
+      if (!opts.serverToolDispatcher) {
+        return errorResult(
+          `server-level tool '${name}' has no dispatcher wired on this MCP server`,
+        );
+      }
+      try {
+        return await opts.serverToolDispatcher({
+          tool: name,
+          args: args ?? {},
+        });
+      } catch (err) {
+        return errorResult(err);
+      }
+    }
     const tool = tools.find((t) => t.name === name);
     if (!tool) return errorResult(`unknown tool: ${name}`);
     try {
