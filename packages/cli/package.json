@@ -1,6 +1,6 @@
 {
   "name": "@delightfulchorus/cli",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "description": "Chorus CLI — chorus init, chorus run, chorus report",
   "type": "module",
   "main": "./dist/index.js",
@@ -35,8 +35,7 @@
   "homepage": "https://github.com/LamaSu/federated-workflow-runtime#readme",
   "publishConfig": {
     "access": "public",
-    "registry": "https://registry.npmjs.org/",
-    "provenance": true
+    "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
     "build": "tsup src/cli.ts --format esm --dts --clean --external @delightfulchorus/core --external @delightfulchorus/registry --external @delightfulchorus/reporter --external @delightfulchorus/repair-agent --external @delightfulchorus/runtime --external @delightfulchorus/mcp",

@@ -1,32 +1,29 @@
 {
-  "task": "Session 3: typed credential catalog (n8n-inspired) + auto-MCP per integration + npm publication + event triggers",
+  "task": "Cover all n8n integrations via universal adapter + typed service catalog + OpenAPI generator (not 400 packages)",
   "classification": "build",
-  "started_at": "2026-04-14T01:30:00Z",
-  "updated_at": "2026-04-14T01:30:00Z",
+  "started_at": "2026-04-16T13:00:00Z",
+  "updated_at": "2026-04-16T13:00:00Z",
   "status": "running",
-  "current_phase": "Phase 5: Build Wave 1",
-  "progress_pct": 30,
+  "current_phase": "Phase 2: Wheel-Scout",
+  "progress_pct": 15,
   "phases": [
-    {"id": 0, "name": "Intake", "status": "completed", "notes": "Resumed; WORKING_MEMORY current"},
-    {"id": 1, "name": "Decomposition", "status": "completed", "notes": "5 agents across 2 waves"},
-    {"id": 2, "name": "Wheel-Scout", "status": "skipped", "notes": "User pasted n8n analysis (the wheel scout's job done by the user)"},
-    {"id": 3, "name": "Bootstrap", "status": "completed"},
-    {"id": 5, "name": "Build Waves", "status": "running"},
-    {"id": 6, "name": "Integration", "status": "pending"},
-    {"id": 7, "name": "Smoke Test", "status": "pending"}
+    {"id": 0, "name": "Intake", "status": "completed", "notes": "Chorus project, 12 packages at 0.1.2 on npm"},
+    {"id": 1, "name": "Decomposition", "status": "completed", "notes": "4 tracks: research → catalog + api-call, openapi generator, docs"},
+    {"id": 2, "name": "Wheel-Scout", "status": "running"},
+    {"id": 5, "name": "Build", "status": "pending"},
+    {"id": 6, "name": "Integration", "status": "pending"}
   ],
   "agents": [],
   "waves": [
-    {"id": 1, "status": "running", "tasks": ["compare-mike: credential analysis + design", "npm-november: package publication"]},
-    {"id": 2, "status": "pending", "tasks": ["credentials-oscar: typed catalog impl", "mcp-papa: auto-MCP per integration", "events-quebec: event triggers + step.waitForEvent"]}
+    {"id": 1, "status": "running", "tasks": ["scout-november: research n8n/Pipedream/OpenAPI integration patterns"]},
+    {"id": 2, "status": "pending", "tasks": ["catalog-oscar: service-catalog + universal api-call integration", "openapi-papa: chorus integrate <openapi-url> generator", "docs-quebec: integration-authoring guide"]}
   ],
   "events": [
-    {"time": "2026-04-14T01:30:00Z", "type": "info", "message": "Session 3: 5 agents across 2 waves; user contributed n8n architectural analysis as scout substitute"}
+    {"time": "2026-04-16T13:00:00Z", "type": "info", "message": "Session 5: cover n8n's integration surface via 3-shape architecture (universal + catalog + generator), not 400 individual packages"}
   ],
   "decisions": [
-    {"decision": "Adopt n8n's typed credential catalog pattern", "rationale": "User's n8n analysis showed it's the IP — well-defined schema per integration so engine knows how to authenticate. We have AES + OAuth refresh; missing the typed catalog."},
-    {"decision": "Wave 1 = analysis + npm (independent), Wave 2 = 3 implementers reading Wave 1 design", "rationale": "compare-mike's design doc declares manifest fields that credentials-oscar implements and mcp-papa consumes — sequential dependency"},
-    {"decision": "Auto-MCP scope: per-integration generated server, not per-deployment", "rationale": "Each installed integration becomes an MCP server exposing its operations. Skills+CLI fallback per ROADMAP §1."}
+    {"decision": "Do NOT port 400 n8n integrations one-by-one", "rationale": "User explicitly asked for 'a way that makes sense' + 'we might not need a whole integration'. 400 packages is wrong shape — most are thin HTTP wrappers."},
+    {"decision": "Three-shape architecture: universal api-call + typed service catalog + OpenAPI generator", "rationale": "Universal adapter handles any HTTP surface; catalog provides typed auth for top-40 services; OpenAPI generator handles long-tail. 95% coverage of n8n's surface at ~0.1% of the code."}
   ],
   "broadcast_cron_id": null
 }

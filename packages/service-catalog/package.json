@@ -1,6 +1,6 @@
 {
   "name": "@delightfulchorus/service-catalog",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "description": "Typed service catalog for Chorus — JSON declarations for 40+ services (auth, endpoints, operations) consumed by universal-http.",
   "type": "module",
   "main": "./dist/index.js",
@@ -30,8 +30,7 @@
   "homepage": "https://github.com/LamaSu/federated-workflow-runtime#readme",
   "publishConfig": {
     "access": "public",
-    "registry": "https://registry.npmjs.org/",
-    "provenance": true
+    "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
     "build": "tsup src/index.ts src/loader.ts src/schemas.ts --format esm --dts --clean",

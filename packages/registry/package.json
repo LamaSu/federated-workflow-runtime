@@ -1,6 +1,6 @@
 {
   "name": "@delightfulchorus/registry",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "description": "Signed patch registry — git-backed, Ed25519 signatures, canary ladder",
   "type": "module",
   "main": "./dist/index.js",
@@ -33,8 +33,7 @@
   "homepage": "https://github.com/LamaSu/federated-workflow-runtime#readme",
   "publishConfig": {
     "access": "public",
-    "registry": "https://registry.npmjs.org/",
-    "provenance": true
+    "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --clean",
