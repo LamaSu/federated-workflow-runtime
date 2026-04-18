@@ -42,11 +42,17 @@ describe("openBrowser", () => {
     Object.defineProperty(process, "platform", { value: p });
   }
 
+  function firstCall(): [string, string[], { detached: boolean; stdio: string; shell: boolean; windowsHide?: boolean }] {
+    const call = spawnMock.mock.calls[0];
+    if (!call) throw new Error("expected at least one spawn call");
+    return call as unknown as [string, string[], { detached: boolean; stdio: string; shell: boolean; windowsHide?: boolean }];
+  }
+
   it("on win32 spawns cmd /c start \"\" <url>", () => {
     setPlatform("win32");
     openBrowser("http://127.0.0.1:3710");
     expect(spawnMock).toHaveBeenCalledTimes(1);
-    const [cmd, args] = spawnMock.mock.calls[0];
+    const [cmd, args] = firstCall();
     expect(cmd).toBe("cmd");
     expect(args).toEqual(["/c", "start", "", "http://127.0.0.1:3710"]);
     expect(unrefMock).toHaveBeenCalled();
@@ -55,7 +61,7 @@ describe("openBrowser", () => {
   it("on darwin spawns `open <url>`", () => {
     setPlatform("darwin");
     openBrowser("http://localhost:3710");
-    const [cmd, args] = spawnMock.mock.calls[0];
+    const [cmd, args] = firstCall();
     expect(cmd).toBe("open");
     expect(args).toEqual(["http://localhost:3710"]);
   });
@@ -63,7 +69,7 @@ describe("openBrowser", () => {
   it("on linux spawns `xdg-open <url>`", () => {
     setPlatform("linux");
     openBrowser("http://localhost:3710");
-    const [cmd, args] = spawnMock.mock.calls[0];
+    const [cmd, args] = firstCall();
     expect(cmd).toBe("xdg-open");
     expect(args).toEqual(["http://localhost:3710"]);
   });
@@ -72,7 +78,7 @@ describe("openBrowser", () => {
     setPlatform("linux");
     process.env.CHORUS_BROWSER = "/usr/bin/firefox";
     openBrowser("http://localhost:3710");
-    const [cmd, args] = spawnMock.mock.calls[0];
+    const [cmd, args] = firstCall();
     expect(cmd).toBe("/usr/bin/firefox");
     expect(args).toEqual(["http://localhost:3710"]);
   });
@@ -80,7 +86,7 @@ describe("openBrowser", () => {
   it("spawns detached and unref's the child", () => {
     setPlatform("linux");
     openBrowser("http://localhost:3710");
-    const [, , opts] = spawnMock.mock.calls[0];
+    const [, , opts] = firstCall();
     expect(opts.detached).toBe(true);
     expect(opts.stdio).toBe("ignore");
     expect(opts.shell).toBe(false);

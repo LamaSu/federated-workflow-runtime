@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 import {
   setDashboard,
   resetDashboard,
@@ -69,5 +72,16 @@ describe("dashboard holder", () => {
     expect(MINIMAL_HTML).not.toMatch(/<script[^>]+src=["']https?:\/\//i);
     expect(MINIMAL_HTML).not.toMatch(/<link[^>]+href=["']https?:\/\//i);
     expect(MINIMAL_HTML).not.toMatch(/@import\s+url\(["']?https?:\/\//i);
+  });
+
+  it("MINIMAL_HTML constant matches the canonical minimal.html file", async () => {
+    // Prevents drift: edit the HTML, update the constant, ship both.
+    const hereFile = fileURLToPath(import.meta.url);
+    const htmlPath = path.join(path.dirname(hereFile), "minimal.html");
+    const onDisk = await readFile(htmlPath, "utf8");
+    // Normalize line endings — the source file may use LF while the TS
+    // literal is whatever the editor produced. Compare after \r stripping.
+    const norm = (s: string): string => s.replace(/\r\n/g, "\n").trimEnd();
+    expect(norm(MINIMAL_HTML)).toBe(norm(onDisk));
   });
 });

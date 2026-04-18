@@ -71,7 +71,8 @@ describe("generate_dashboard — tool shape", () => {
 
 describe("handleGenerateDashboard", () => {
   it("passes inputs through to the generator and returns the dashboard URL", async () => {
-    let seenOpts: Parameters<DashboardGenerator>[0] | null = null;
+    type GenOpts = Parameters<DashboardGenerator>[0];
+    let seenOpts: GenOpts | undefined;
     const deps = makeDeps({
       generator: async (opts) => {
         seenOpts = opts;
@@ -91,10 +92,11 @@ describe("handleGenerateDashboard", () => {
     expect(out.url).toBe("http://127.0.0.1:3710/dashboard");
     expect(out.source).toBe("generated");
     expect(out.cacheKey).toBe("k1");
-    expect(seenOpts).not.toBeNull();
-    expect(seenOpts?.customPrompt).toBe("make it green");
+    expect(seenOpts).toBeDefined();
+    const captured = seenOpts as GenOpts;
+    expect(captured.customPrompt).toBe("make it green");
     // Custom prompts auto-set noCache=true
-    expect(seenOpts?.noCache).toBe(true);
+    expect(captured.noCache).toBe(true);
   });
 
   it("defaults to cached result when no prompt + no force", async () => {
@@ -174,8 +176,10 @@ describe("dispatchServerTool", () => {
     );
     expect(res.isError).toBe(false);
     expect(res.content).toHaveLength(1);
-    expect(res.content[0].type).toBe("text");
-    const body = JSON.parse(res.content[0].text);
+    const first = res.content[0];
+    if (!first) throw new Error("expected at least one content entry");
+    expect(first.type).toBe("text");
+    const body = JSON.parse(first.text);
     expect(body.ok).toBe(true);
     expect(body.url).toMatch(/\/dashboard$/);
   });
@@ -187,6 +191,8 @@ describe("dispatchServerTool", () => {
       deps,
     );
     expect(res.isError).toBe(true);
-    expect(res.content[0].text).toMatch(/unknown server-level tool/);
+    const first = res.content[0];
+    if (!first) throw new Error("expected at least one content entry");
+    expect(first.text).toMatch(/unknown server-level tool/);
   });
 });
