@@ -1,4 +1,8 @@
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, {
+  type FastifyInstance,
+  type FastifyRequest,
+  type FastifyReply,
+} from "fastify";
 import type { IntegrationLoader } from "./executor.js";
 import type { ManifestLookup, RefreshFn } from "./oauth.js";
 import { openDatabase, QueryHelpers, type DatabaseType } from "./db.js";
@@ -12,6 +16,7 @@ import { OAuthRefresher } from "./oauth.js";
 import { ExpiryAlarm } from "./expiry-alarm.js";
 import { registerApiRoutes } from "./api/index.js";
 import type { EventDispatcher } from "./triggers/event.js";
+import { getDashboardHtml, getDashboardEtag } from "./static/holder.js";
 
 /**
  * Fastify server composition per ARCHITECTURE §4.
@@ -115,6 +120,25 @@ export function createServer(opts: CreateServerOptions): ChorusServer {
     apiToken,
     eventDispatcher: opts.eventDispatcher,
   });
+
+  // Ambient dashboard --------------------------------------------------------
+  // `/` and `/dashboard` serve the current dashboard HTML (minimal by
+  // default; may be upgraded at startup by an LLM-generated custom build
+  // via `start-server.ts` → `setDashboard()`). Kept thin so tests don't
+  // have to load files off disk; the HTML is embedded as a TS constant in
+  // `./static/index.ts`.
+  const serveDashboard = async (
+    _req: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<string> => {
+    const html = getDashboardHtml();
+    reply.header("Content-Type", "text/html; charset=utf-8");
+    reply.header("Cache-Control", "no-cache");
+    reply.header("ETag", getDashboardEtag());
+    return html;
+  };
+  app.get("/", serveDashboard);
+  app.get("/dashboard", serveDashboard);
 
   // Health & introspection routes -------------------------------------------
   app.get("/health", async () => ({
