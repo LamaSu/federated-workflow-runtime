@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Chorus — dashboard</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root {
+      --bg: #f5f0e1; --fg: #2a2a2a; --muted: #7a7565;
+      --ok: #5c6b3d; --warn: #b57d1d; --err: #8b2f2f;
+      --panel: #ede6d1; --border: #d8cfb7; --row: #e2dac1;
+      --link: #3d5a6b;
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; padding:24px; background:var(--bg); color:var(--fg);
+      font: 14px/1.45 ui-monospace, Menlo, Consolas, monospace;
+      min-height: 100vh; }
+    header { display:flex; align-items:baseline; gap:12px;
+      margin-bottom:20px; flex-wrap:wrap; }
+    h1 { margin:0; font-size:18px; letter-spacing:.02em; }
+    .sub { color:var(--muted); font-size:13px; }
+    .pill { display:inline-block; padding:2px 8px; background:var(--panel);
+      color:var(--muted); font-size:11px; letter-spacing:.04em;
+      text-transform:uppercase; }
+    .pill.live { color:var(--ok); }
+    .pill.stale { color:var(--err); }
+    .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+    @media (max-width: 800px) { .grid { grid-template-columns:1fr; } }
+    .panel { background:var(--panel); padding:14px 16px; margin-bottom:16px; }
+    .panel h2 { margin:0 0 8px; font-size:13px; text-transform:uppercase;
+      letter-spacing:.08em; color:var(--muted);
+      display:flex; justify-content:space-between; align-items:center; }
+    .panel h2 .count { color:var(--fg); font-weight:normal; }
+    table { width:100%; border-collapse:collapse; }
+    th, td { text-align:left; padding:6px 10px 6px 0; vertical-align:top;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+      max-width:280px; }
+    th { color:var(--muted); font-weight:500; font-size:12px;
+      border-bottom:1px solid var(--border); }
+    tr + tr td { border-top:1px solid var(--row); }
+    .id { color:var(--muted); }
+    .status { display:inline-block; padding:1px 6px; font-size:11px;
+      text-transform:uppercase; letter-spacing:.04em; }
+    .success { color:var(--ok); }
+    .failed  { color:var(--err); }
+    .running { color:var(--warn); }
+    .pending { color:var(--muted); }
+    .cancelled { color:var(--muted); text-decoration:line-through; }
+    .empty { color:var(--muted); font-style:italic; padding:8px 0; }
+    .banner { background:#f7d7d2; color:var(--err); padding:8px 12px;
+      margin-bottom:16px; display:none; }
+    .banner.visible { display:block; }
+    .banner button { margin-left:8px; background:var(--err); color:#fff;
+      border:0; padding:2px 10px; cursor:pointer; font:inherit; }
+    .meta { color:var(--muted); font-size:12px; }
+    .workflows-inline { display:flex; flex-wrap:wrap; gap:6px; }
+    .workflows-inline .chip { background:#fff; padding:2px 8px; font-size:12px;
+      border:1px solid var(--border); }
+    .active-dot { display:inline-block; width:6px; height:6px; background:var(--ok);
+      margin-right:4px; vertical-align:middle; }
+    .inactive-dot { display:inline-block; width:6px; height:6px; background:var(--muted);
+      margin-right:4px; vertical-align:middle; }
+    .footer { margin-top:24px; color:var(--muted); font-size:12px;
+      border-top:1px solid var(--border); padding-top:12px; }
+    .footer a { color:var(--link); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Chorus</h1>
+    <div class="sub" id="sub">loading manifest…</div>
+    <span class="pill" id="live">boot</span>
+  </header>
+
+  <div class="banner" id="banner">
+    <span id="banner-msg">Lost connection to Chorus runtime.</span>
+    <button onclick="window.__chorus.refresh()">retry</button>
+  </div>
+
+  <div class="panel">
+    <h2>Workflows <span class="count" id="wf-count">—</span></h2>
+    <div class="workflows-inline" id="workflows">
+      <span class="empty">Loading…</span>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="panel">
+      <h2>Recent runs <span class="count" id="runs-count">—</span></h2>
+      <table id="runs"><thead><tr>
+        <th>status</th><th>workflow</th><th>started</th><th>dur</th>
+      </tr></thead><tbody><tr><td colspan="4" class="empty">Loading…</td></tr></tbody></table>
+    </div>
+
+    <div class="panel">
+      <h2>Error signatures <span class="count" id="errors-count">—</span></h2>
+      <table id="errors"><thead><tr>
+        <th>integration.op</th><th>class</th><th>occ</th><th>last</th>
+      </tr></thead><tbody><tr><td colspan="4" class="empty">Loading…</td></tr></tbody></table>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span id="updated">Last refresh: —</span>
+    &nbsp;·&nbsp;
+    <span class="meta">polling every <span id="poll-secs">2</span>s</span>
+    &nbsp;·&nbsp;
+    <a href="/api/manifest">api manifest</a>
+  </div>
+
+  <script>
+    (function () {
+      var API = "";
+      var POLL_MS = 2000;
+      var authHeader = null;
+      var lastOk = 0;
+      var timer = null;
+
+      function esc(s) {
+        return String(s == null ? "" : s).replace(/[<>&"]/g, function (c) {
+          return {"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[c];
+        });
+      }
+      function fmt(iso) {
+        if (!iso) return "—";
+        var d = new Date(iso);
+        var s = (Date.now() - d.getTime()) / 1000 | 0;
+        if (s < 0) return "just now";
+        if (s < 60) return s + "s ago";
+        if (s < 3600) return (s / 60 | 0) + "m ago";
+        if (s < 86400) return (s / 3600 | 0) + "h ago";
+        return d.toISOString().slice(0, 10);
+      }
+      function truncId(s) {
+        if (!s) return "—";
+        return '<span class="id" title="' + esc(s) + '">' + esc(s.length > 12 ? s.slice(0, 12) + "…" : s) + '</span>';
+      }
+      function row(cells) {
+        return "<tr>" + cells.map(function (c) { return "<td>" + c + "</td>"; }).join("") + "</tr>";
+      }
+      function tbody(id) {
+        return document.querySelector("#" + id + " tbody");
+      }
+      function get(url) {
+        var opts = {};
+        if (authHeader) opts.headers = { "Authorization": authHeader };
+        return fetch(API + url, opts).then(function (r) {
+          if (!r.ok) throw new Error(url + " -> " + r.status);
+          return r.json();
+        });
+      }
+      function setBanner(on, msg) {
+        var el = document.getElementById("banner");
+        if (on) {
+          el.classList.add("visible");
+          document.getElementById("banner-msg").textContent = msg || "Lost connection to Chorus runtime.";
+        } else {
+          el.classList.remove("visible");
+        }
+      }
+      function setLive(state) {
+        var el = document.getElementById("live");
+        el.className = "pill " + state;
+        el.textContent = state === "live" ? "live" : state === "stale" ? "stale" : "boot";
+      }
+
+      function renderManifest(m) {
+        var sub = document.getElementById("sub");
+        sub.textContent = "api v" + (m.chorusApiVersion || "?") + " · " +
+          (m.authMode || "unknown") + " · " +
+          (m.capabilities ? m.capabilities.length : 0) + " caps";
+      }
+      function renderWorkflows(data) {
+        var list = data.workflows || [];
+        document.getElementById("wf-count").textContent = list.length;
+        var host = document.getElementById("workflows");
+        if (list.length === 0) {
+          host.innerHTML = '<span class="empty">No workflows loaded. Add a YAML to chorus/workflows/.</span>';
+          return;
+        }
+        host.innerHTML = list.map(function (w) {
+          var dot = w.active ? "active-dot" : "inactive-dot";
+          return '<span class="chip" title="' + esc(w.id) + ' v' + esc(w.version) + '">' +
+            '<span class="' + dot + '"></span>' + esc(w.name || w.id) +
+            '</span>';
+        }).join("");
+      }
+      function renderRuns(data) {
+        var list = data.runs || [];
+        document.getElementById("runs-count").textContent =
+          typeof data.total === "number" ? data.total : list.length;
+        tbody("runs").innerHTML = list.length === 0
+          ? '<tr><td colspan="4" class="empty">No runs yet. Trigger one to see it here.</td></tr>'
+          : list.slice(0, 15).map(function (r) {
+              return row([
+                '<span class="status ' + esc(r.status) + '">' + esc(r.status) + '</span>',
+                '<span title="' + esc(r.workflowId) + '">' + esc(r.workflowId) + '</span>',
+                '<span title="' + esc(r.startedAt || "") + '">' + fmt(r.startedAt) + '</span>',
+                r.durationMs != null ? r.durationMs + "ms" : "—",
+              ]);
+            }).join("");
+      }
+      function renderErrors(data) {
+        var list = data.errors || [];
+        document.getElementById("errors-count").textContent = list.length;
+        tbody("errors").innerHTML = list.length === 0
+          ? '<tr><td colspan="4" class="empty">No errors. Nice.</td></tr>'
+          : list.slice(0, 15).map(function (e) {
+              return row([
+                esc(e.integration) + "." + esc(e.operation),
+                esc(e.errorClass) + (e.httpStatus ? " (" + e.httpStatus + ")" : ""),
+                "×" + (e.occurrences || 0),
+                '<span title="' + esc(e.lastSeen || "") + '">' + fmt(e.lastSeen) + '</span>',
+              ]);
+            }).join("");
+      }
+
+      function refresh() {
+        Promise.all([
+          get("/api/manifest").catch(function () { return null; }),
+          get("/api/workflows").catch(function () { return { workflows: [] }; }),
+          get("/api/runs?limit=20").catch(function () { return { runs: [] }; }),
+          get("/api/errors?limit=10").catch(function () { return { errors: [] }; })
+        ]).then(function (all) {
+          var m = all[0];
+          if (m) renderManifest(m);
+          renderWorkflows(all[1]);
+          renderRuns(all[2]);
+          renderErrors(all[3]);
+          lastOk = Date.now();
+          setBanner(false);
+          setLive("live");
+          document.getElementById("updated").textContent = "Last refresh: " + new Date().toLocaleTimeString();
+        }).catch(function (err) {
+          setBanner(true, "Lost connection: " + (err && err.message || err));
+          setLive("stale");
+        });
+      }
+
+      function start() {
+        document.getElementById("poll-secs").textContent = (POLL_MS / 1000).toFixed(0);
+        refresh();
+        timer = setInterval(function () {
+          if (document.hidden) return;
+          refresh();
+        }, POLL_MS);
+      }
+      document.addEventListener("visibilitychange", function () {
+        if (!document.hidden) refresh();
+      });
+
+      window.__chorus = { refresh: refresh };
+      start();
+    })();
+  </script>
+</body>
+</html>
