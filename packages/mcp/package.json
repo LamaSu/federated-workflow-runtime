@@ -1,6 +1,6 @@
 {
   "name": "@delightfulchorus/mcp",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Auto-MCP: expose Chorus integrations as MCP tools (generate or serve inline)",
   "type": "module",
   "main": "./dist/index.js",

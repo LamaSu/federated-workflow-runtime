@@ -1,6 +1,6 @@
 {
   "name": "@delightfulchorus/integration-slack-send",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Slack send-message integration — reference example for the integration SDK",
   "type": "module",
   "main": "./dist/index.js",

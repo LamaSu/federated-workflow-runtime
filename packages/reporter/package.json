@@ -1,6 +1,6 @@
 {
   "name": "@delightfulchorus/reporter",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Failure reporter — PII redaction, signature extraction, registry submission",
   "type": "module",
   "main": "./dist/index.js",

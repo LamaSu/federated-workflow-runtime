@@ -1,6 +1,6 @@
 {
   "name": "@delightfulchorus/cli",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Chorus CLI — chorus init, chorus run, chorus report",
   "type": "module",
   "main": "./dist/index.js",

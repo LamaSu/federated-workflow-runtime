@@ -1,6 +1,6 @@
 {
   "name": "@delightfulchorus/integration-mcp-proxy",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Proxy integration: forward Chorus operations to any external MCP server (GitHub, Postgres, Filesystem, Exa, etc.)",
   "type": "module",
   "main": "./dist/index.js",
