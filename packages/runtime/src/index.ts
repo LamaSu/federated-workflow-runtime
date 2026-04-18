@@ -132,6 +132,28 @@ export {
 } from "./expiry-alarm.js";
 
 export { createServer, type ChorusServer, type CreateServerOptions } from "./server.js";
+export { startServer, type StartServerOptions, type StartServerConfig } from "./start-server.js";
+
+export {
+  setDashboard,
+  resetDashboard,
+  getDashboardHtml,
+  getDashboardEtag,
+} from "./static/holder.js";
+export { MINIMAL_HTML } from "./static/index.js";
+export {
+  maybeGenerateDashboard,
+  buildPrompt,
+  extractHtml,
+  hashWorkflowSet,
+  hashString,
+  DEFAULT_MODEL,
+  ANTHROPIC_API_URL,
+  ANTHROPIC_VERSION,
+  CACHE_DIR_NAME,
+  type GenerateDashboardOptions,
+  type GenerateDashboardResult,
+} from "./ui-generator.js";
 
 export {
   API_VERSION,

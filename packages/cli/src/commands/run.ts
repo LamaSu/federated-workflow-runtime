@@ -13,6 +13,7 @@
  * complete their current step, then the subprocess is joined.
  */
 import { readdir } from "node:fs/promises";
+import { spawn } from "node:child_process";
 import path from "node:path";
 import pc from "picocolors";
 import { loadConfig, type ChorusConfig } from "../config.js";
@@ -122,6 +123,25 @@ export async function runRun(opts: RunOptions = {}): Promise<number> {
   process.on("SIGINT", onSignal);
   process.on("SIGTERM", onSignal);
 
+  /**
+   * `onListen` callback — fired once by the runtime after app.listen()
+   * resolves. We print the dashboard URL and, unless CHORUS_NO_OPEN is
+   * set, spawn the platform-appropriate browser. Errors are swallowed
+   * because the server must continue running either way.
+   */
+  const onListen = (url: string): void => {
+    p(`${pc.bold("Dashboard")}: ${pc.cyan(url)}\n`);
+    if (process.env.CHORUS_NO_OPEN === "1") {
+      p(pc.dim("   (CHORUS_NO_OPEN=1 — skipping browser auto-open)\n"));
+      return;
+    }
+    try {
+      openBrowser(url);
+    } catch (err) {
+      p(pc.dim(`   (browser auto-open failed: ${(err as Error).message})\n`));
+    }
+  };
+
   try {
     if (runtime.startServer) {
       await runtime.startServer({
@@ -129,6 +149,7 @@ export async function runRun(opts: RunOptions = {}): Promise<number> {
         workflowFiles: bs.workflowFiles,
         targetWorkflow: opts.target,
         signal: abort.signal,
+        onListen,
       });
     } else if (runtime.startRuntime) {
       await runtime.startRuntime({
@@ -136,6 +157,7 @@ export async function runRun(opts: RunOptions = {}): Promise<number> {
         workflowFiles: bs.workflowFiles,
         targetWorkflow: opts.target,
         signal: abort.signal,
+        onListen,
       });
     } else {
       p(`${pc.red("✗")} @delightfulchorus/runtime exports neither startServer nor startRuntime\n`);
@@ -148,18 +170,59 @@ export async function runRun(opts: RunOptions = {}): Promise<number> {
   return 0;
 }
 
+/**
+ * Cross-platform browser-open: picks `start` on win32, `open` on darwin,
+ * `xdg-open` elsewhere. Detached + unref()'d so the CLI process isn't
+ * coupled to the browser's lifetime. Honors CHORUS_BROWSER as an override
+ * (the value is used as the argv[0] to spawn, passed the URL as the sole
+ * arg).
+ */
+export function openBrowser(url: string): void {
+  const override = process.env.CHORUS_BROWSER;
+  let cmd: string;
+  let args: string[];
+  if (override && override.length > 0) {
+    cmd = override;
+    args = [url];
+  } else if (process.platform === "win32") {
+    // `start` is a cmd.exe builtin; spawning cmd with /c start "<title>"
+    // "<url>" is the canonical pattern. The empty "" is the window title
+    // slot — start treats the first quoted arg as the title.
+    cmd = "cmd";
+    args = ["/c", "start", "", url];
+  } else if (process.platform === "darwin") {
+    cmd = "open";
+    args = [url];
+  } else {
+    cmd = "xdg-open";
+    args = [url];
+  }
+  const child = spawn(cmd, args, {
+    stdio: "ignore",
+    detached: true,
+    shell: false,
+    windowsHide: true,
+  });
+  child.on("error", () => {
+    /* swallow — caller already logged the URL */
+  });
+  child.unref();
+}
+
 interface RuntimeModule {
   startServer?: (opts: {
     config: ChorusConfig;
     workflowFiles: string[];
     targetWorkflow?: string;
     signal: AbortSignal;
+    onListen?: (url: string) => void;
   }) => Promise<void>;
   startRuntime?: (opts: {
     config: ChorusConfig;
     workflowFiles: string[];
     targetWorkflow?: string;
     signal: AbortSignal;
+    onListen?: (url: string) => void;
   }) => Promise<void>;
 }
 
