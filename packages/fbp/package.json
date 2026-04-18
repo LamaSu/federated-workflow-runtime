@@ -1,0 +1,54 @@
+{
+  "name": "@delightfulchorus/fbp",
+  "version": "0.1.3",
+  "description": "Bidirectional bridge between Chorus Workflow JSON and Flow-Based Programming (.fbp) text graphs",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "chorus",
+    "workflow",
+    "fbp",
+    "flow-based-programming",
+    "noflo",
+    "bridge",
+    "adapter",
+    "n8n-alternative"
+  ],
+  "author": "Chorus contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LamaSu/federated-workflow-runtime.git",
+    "directory": "packages/fbp"
+  },
+  "bugs": {
+    "url": "https://github.com/LamaSu/federated-workflow-runtime/issues"
+  },
+  "homepage": "https://github.com/LamaSu/federated-workflow-runtime#readme",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean",
+    "test": "vitest run",
+    "dev": "tsup src/index.ts --format esm --dts --watch",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "dependencies": {
+    "@delightfulchorus/core": "*",
+    "fbp": "^1.8.0"
+  }
+}
