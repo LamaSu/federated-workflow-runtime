@@ -1,6 +1,6 @@
 {
   "name": "@delightfulchorus/fbp",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Bidirectional bridge between Chorus Workflow JSON and Flow-Based Programming (.fbp) text graphs",
   "type": "module",
   "main": "./dist/index.js",

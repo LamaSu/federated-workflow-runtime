@@ -1,6 +1,6 @@
 {
   "name": "@delightfulchorus/core",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Shared types, schemas, and utilities for Chorus",
   "type": "module",
   "main": "./dist/index.js",
