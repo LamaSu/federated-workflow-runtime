@@ -258,6 +258,29 @@ export function runMigrations(db: DatabaseType): void {
     );
     CREATE INDEX IF NOT EXISTS idx_oauth_pending_state ON oauth_pending(state, consumed_at);
     CREATE INDEX IF NOT EXISTS idx_oauth_pending_expires ON oauth_pending(expires_at, consumed_at);
+
+    -- Memory (per-workflow, optionally per-user, durable KV) -----------------
+    -- Populated by StepContext.memory.get/set, which are routed through
+    -- step.run(...) for replay idempotency. Scope is always
+    -- (workflow_id, user_id?) — two runs of the same workflow with the
+    -- same user_id share memory; runs with different user_ids do not.
+    -- Rows for user_id = NULL share a separate namespace (workflow-global).
+    --
+    -- The primary key uses COALESCE(user_id, '') because SQLite treats
+    -- NULL as distinct in composite primary keys, which would allow
+    -- multiple NULL-user rows for the same (workflow_id, key). The
+    -- COALESCE normalizes NULLs to '' inside the unique index so the
+    -- intended semantics hold.
+    CREATE TABLE IF NOT EXISTS memory (
+      workflow_id TEXT NOT NULL,
+      user_id     TEXT,
+      key         TEXT NOT NULL,
+      value_json  TEXT NOT NULL,
+      updated_at  INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_pk
+      ON memory(workflow_id, COALESCE(user_id, ''), key);
+    CREATE INDEX IF NOT EXISTS idx_memory_workflow ON memory(workflow_id);
   `);
 
   // Handle migrations from a pre-existing `events` table (old MVP shape:
@@ -431,6 +454,19 @@ export interface OAuthPendingRow {
   consumed_at: string | null;
   consumed_error: string | null;
   credential_id: string | null;
+}
+
+// ── Memory (per-workflow / per-user KV) ─────────────────────────────────────
+//
+// Backs StepContext.memory.get/set. See the `memory` table in
+// runMigrations() above. Access goes through step.run(...) so that a
+// crash between "set" and the next replay can idempotently redo the set.
+export interface MemoryRow {
+  workflow_id: string;
+  user_id: string | null;
+  key: string;
+  value_json: string;
+  updated_at: number;
 }
 
 // ── Typed query helpers ─────────────────────────────────────────────────────
@@ -876,6 +912,63 @@ export class QueryHelpers {
          ORDER BY expires_at ASC
          LIMIT ?`,
     ).all(nowIso, limit) as OAuthPendingRow[];
+  }
+
+  // Memory ------------------------------------------------------------------
+
+  /**
+   * Fetch a memory row scoped to (workflow_id, user_id?). Returns
+   * undefined when no value has been set. `user_id` may be null to
+   * address the workflow-global namespace.
+   */
+  getMemory(
+    workflowId: string,
+    userId: string | null,
+    key: string,
+  ): MemoryRow | undefined {
+    return this.get(
+      `SELECT * FROM memory
+         WHERE workflow_id = ?
+           AND COALESCE(user_id, '') = COALESCE(?, '')
+           AND key = ?`,
+    ).get(workflowId, userId, key) as MemoryRow | undefined;
+  }
+
+  /**
+   * Upsert a memory row. Idempotent; repeated calls with the same key
+   * overwrite the value (and update `updated_at`). Callers should route
+   * this through `step.run(...)` so the write is memoized per-run.
+   */
+  upsertMemory(row: MemoryRow): void {
+    this.get(
+      `INSERT INTO memory (workflow_id, user_id, key, value_json, updated_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(workflow_id, COALESCE(user_id, ''), key) DO UPDATE SET
+         value_json = excluded.value_json,
+         updated_at = excluded.updated_at`,
+    ).run(row.workflow_id, row.user_id, row.key, row.value_json, row.updated_at);
+  }
+
+  /**
+   * List all memory rows for a workflow (optionally also scoped to a
+   * particular user). Useful for debugging / admin surfaces; not used
+   * by the executor's hot path.
+   */
+  listMemory(
+    workflowId: string,
+    userId?: string | null,
+  ): MemoryRow[] {
+    if (userId === undefined) {
+      return this.get(
+        `SELECT * FROM memory WHERE workflow_id = ? ORDER BY key ASC`,
+      ).all(workflowId) as MemoryRow[];
+    }
+    return this.get(
+      `SELECT * FROM memory
+         WHERE workflow_id = ?
+           AND COALESCE(user_id, '') = COALESCE(?, '')
+         ORDER BY key ASC`,
+    ).all(workflowId, userId) as MemoryRow[];
   }
 }
 
