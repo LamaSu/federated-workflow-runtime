@@ -1,29 +1,40 @@
 {
-  "task": "Cover all n8n integrations via universal adapter + typed service catalog + OpenAPI generator (not 400 packages)",
+  "task": "Ship chorus compose + 3 LLM integrations + agent step + when/memory primitives + visual editor CLI (generative) + cloud distribution design",
   "classification": "build",
-  "started_at": "2026-04-16T13:00:00Z",
-  "updated_at": "2026-04-16T13:00:00Z",
+  "started_at": "2026-04-22T22:12:47Z",
+  "updated_at": "2026-04-22T22:13:30Z",
   "status": "running",
   "current_phase": "Phase 2: Wheel-Scout",
   "progress_pct": 15,
   "phases": [
-    {"id": 0, "name": "Intake", "status": "completed", "notes": "Chorus project, 12 packages at 0.1.2 on npm"},
-    {"id": 1, "name": "Decomposition", "status": "completed", "notes": "4 tracks: research → catalog + api-call, openapi generator, docs"},
-    {"id": 2, "name": "Wheel-Scout", "status": "running"},
-    {"id": 5, "name": "Build", "status": "pending"},
-    {"id": 6, "name": "Integration", "status": "pending"}
+    {"id": 0, "name": "Intake", "status": "completed", "started_at": "2026-04-22T22:12:47Z", "completed_at": "2026-04-22T22:12:55Z", "notes": "Spark UP (99Gi), CodeSight indexed, 7-task decomposition created"},
+    {"id": 1, "name": "Classify + Decompose", "status": "completed", "started_at": "2026-04-22T22:12:55Z", "completed_at": "2026-04-22T22:13:00Z", "notes": "BUILD task, 7 leaves, 3 waves"},
+    {"id": 2, "name": "Wheel-Scout", "status": "running", "started_at": "2026-04-22T22:13:00Z", "notes": "Landscape for NL-to-workflow + visual editor + cloud share"},
+    {"id": 3, "name": "Bootstrap", "status": "pending"},
+    {"id": 5, "name": "Execute", "status": "pending"},
+    {"id": 6, "name": "Integrate", "status": "pending"},
+    {"id": 7, "name": "Smoke Test", "status": "pending"}
   ],
-  "agents": [],
+  "agents": [
+    {"name": "scout-alpha", "role": "wheel-scout", "model": "sonnet", "status": "running", "spawned_at": "2026-04-22T22:13:30Z", "phase": "2"}
+  ],
   "waves": [
-    {"id": 1, "status": "running", "tasks": ["scout-november: research n8n/Pipedream/OpenAPI integration patterns"]},
-    {"id": 2, "status": "pending", "tasks": ["catalog-oscar: service-catalog + universal api-call integration", "openapi-papa: chorus integrate <openapi-url> generator", "docs-quebec: integration-authoring guide"]}
+    {"id": 1, "status": "running", "tasks": ["1"], "agents": ["scout-alpha"], "description": "Wheel-scout gate"},
+    {"id": 2, "status": "pending", "tasks": ["2", "3", "4", "7"], "description": "Independent builds (compose, LLM integrations, when+memory, cloud design)"},
+    {"id": 3, "status": "pending", "tasks": ["5", "6"], "description": "Dependents (agent-step needs LLM; visual editor needs compose)"}
   ],
   "events": [
-    {"time": "2026-04-16T13:00:00Z", "type": "info", "message": "Session 5: cover n8n's integration surface via 3-shape architecture (universal + catalog + generator), not 400 individual packages"}
+    {"time": "2026-04-22T22:12:47Z", "type": "phase_start", "message": "Phase 0 intake — cwd=~/chorus, Spark available"},
+    {"time": "2026-04-22T22:12:55Z", "type": "phase_complete", "message": "Phase 0 done: intake.json written"},
+    {"time": "2026-04-22T22:12:55Z", "type": "phase_start", "message": "Phase 1 decomposition: 7 atomic tasks, 3 waves"},
+    {"time": "2026-04-22T22:13:00Z", "type": "phase_start", "message": "Phase 2 wheel-scout spawning"}
   ],
+  "errors": [],
   "decisions": [
-    {"decision": "Do NOT port 400 n8n integrations one-by-one", "rationale": "User explicitly asked for 'a way that makes sense' + 'we might not need a whole integration'. 400 packages is wrong shape — most are thin HTTP wrappers."},
-    {"decision": "Three-shape architecture: universal api-call + typed service catalog + OpenAPI generator", "rationale": "Universal adapter handles any HTTP surface; catalog provides typed auth for top-40 services; OpenAPI generator handles long-tail. 95% coverage of n8n's surface at ~0.1% of the code."}
+    {"time": "2026-04-22T22:13:00Z", "decision": "Visual editor = CLI-generated standalone HTML with React Flow via CDN (extends chorus ui --prompt philosophy per ROADMAP §7). Not a hardcoded drag-drop dashboard."},
+    {"time": "2026-04-22T22:13:00Z", "decision": "Cloud distribution MVP = template-share model (strip credentials, emit portable JSON). Preserves local-first thesis. Hosted-runtime deferred to design doc decision."},
+    {"time": "2026-04-22T22:13:00Z", "decision": "Test-writer sidecars DISABLED for this pipeline — each implementer writes own tests following chorus patterns. Reduces parallel agent count from ~12 to 6-7."}
   ],
-  "broadcast_cron_id": null
+  "broadcast_cron_id": null,
+  "smoke_test": {"verdict": "pending", "iterations": 0, "checks_passed": 0, "checks_failed": 0, "heal_attempts": 0, "report_path": "ai/supervisor/smoke-test-report.json"}
 }
