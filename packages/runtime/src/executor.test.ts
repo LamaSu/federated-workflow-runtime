@@ -69,7 +69,10 @@ function makeCtxIntegration(
   };
 }
 
-function makeWorkflow(nodes: Workflow["nodes"]): Workflow {
+function makeWorkflow(
+  nodes: Workflow["nodes"],
+  connections: Workflow["connections"] = [],
+): Workflow {
   return {
     id: "wf-test",
     name: "test",
@@ -77,7 +80,7 @@ function makeWorkflow(nodes: Workflow["nodes"]): Workflow {
     active: true,
     trigger: { type: "manual" },
     nodes,
-    connections: [],
+    connections,
     createdAt: "2026-04-13T00:00:00Z",
     updatedAt: "2026-04-13T00:00:00Z",
   };
@@ -767,6 +770,253 @@ describe("Executor — step.waitForEvent (durable wait primitive)", () => {
       .prepare(`SELECT COUNT(*) AS c FROM waiting_steps WHERE run_id = ?`)
       .get(runId) as { c: number };
     expect(count.c).toBe(1);
+    db.close();
+  });
+});
+
+// ─── Connection.when? conditional routing ──────────────────────────────────
+//
+// A Connection may carry a jexl-style expression in `when?`. Before the
+// target node runs, the expression is evaluated against the source node's
+// output (`result`) and the run's trigger payload (`input`). If the
+// expression is falsy the edge is skipped; if every incoming edge is
+// skipped, the target node itself is skipped.
+
+describe("Executor — Connection.when? conditional edge routing", () => {
+  it("takes an edge when `when?` evaluates truthy", async () => {
+    const db = openDatabase(":memory:");
+    const q = new RunQueue(db);
+    const runId = q.enqueue("wf-test");
+    q.claim();
+
+    const calls: string[] = [];
+    const mod = makeIntegration("stub", {
+      check: async () => {
+        calls.push("check");
+        return { status: "ok" };
+      },
+      next: async () => {
+        calls.push("next");
+        return { done: true };
+      },
+    });
+    const exec = new Executor({
+      db,
+      integrationLoader: makeLoader({ stub: mod }),
+    });
+    const workflow = makeWorkflow(
+      [
+        { id: "A", integration: "stub", operation: "check", config: {}, onError: "fail" },
+        { id: "B", integration: "stub", operation: "next", config: {}, onError: "fail" },
+      ],
+      [{ from: "A", to: "B", when: "result.status == 'ok'" }],
+    );
+
+    const res = await exec.run(workflow, runId, { event: "trigger" });
+    expect(res.status).toBe("success");
+    expect(calls).toEqual(["check", "next"]);
+    db.close();
+  });
+
+  it("skips an edge when `when?` evaluates falsy → target is skipped", async () => {
+    const db = openDatabase(":memory:");
+    const q = new RunQueue(db);
+    const runId = q.enqueue("wf-test");
+    q.claim();
+
+    const calls: string[] = [];
+    const mod = makeIntegration("stub", {
+      check: async () => {
+        calls.push("check");
+        return { status: "fail" };
+      },
+      next: async () => {
+        calls.push("next");
+        return { done: true };
+      },
+    });
+    const exec = new Executor({
+      db,
+      integrationLoader: makeLoader({ stub: mod }),
+    });
+    const workflow = makeWorkflow(
+      [
+        { id: "A", integration: "stub", operation: "check", config: {}, onError: "fail" },
+        { id: "B", integration: "stub", operation: "next", config: {}, onError: "fail" },
+      ],
+      [{ from: "A", to: "B", when: "result.status == 'ok'" }],
+    );
+
+    const res = await exec.run(workflow, runId, {});
+    expect(res.status).toBe("success");
+    expect(calls).toEqual(["check"]);
+    // B was skipped — only A wrote a step row.
+    expect(res.steps).toHaveLength(1);
+    expect(res.steps[0]?.step_name).toBe("A");
+    db.close();
+  });
+
+  it("diamond branching: two conditional edges → only the matching path runs", async () => {
+    const db = openDatabase(":memory:");
+    const q = new RunQueue(db);
+    const runId = q.enqueue("wf-test");
+    q.claim();
+
+    const calls: string[] = [];
+    const mod = makeIntegration("stub", {
+      route: async () => {
+        calls.push("route");
+        return { tier: "gold" };
+      },
+      goldPath: async () => {
+        calls.push("gold");
+        return { tier: "gold-handled" };
+      },
+      silverPath: async () => {
+        calls.push("silver");
+        return { tier: "silver-handled" };
+      },
+    });
+    const exec = new Executor({
+      db,
+      integrationLoader: makeLoader({ stub: mod }),
+    });
+    const workflow = makeWorkflow(
+      [
+        { id: "router", integration: "stub", operation: "route", config: {}, onError: "fail" },
+        { id: "gold", integration: "stub", operation: "goldPath", config: {}, onError: "fail" },
+        { id: "silver", integration: "stub", operation: "silverPath", config: {}, onError: "fail" },
+      ],
+      [
+        { from: "router", to: "gold", when: "result.tier == 'gold'" },
+        { from: "router", to: "silver", when: "result.tier == 'silver'" },
+      ],
+    );
+
+    const res = await exec.run(workflow, runId, {});
+    expect(res.status).toBe("success");
+    expect(calls).toEqual(["route", "gold"]);
+    expect(calls).not.toContain("silver");
+    db.close();
+  });
+
+  it("no `when?` on a connection → edge always taken (back-compat)", async () => {
+    const db = openDatabase(":memory:");
+    const q = new RunQueue(db);
+    const runId = q.enqueue("wf-test");
+    q.claim();
+
+    const calls: string[] = [];
+    const mod = makeIntegration("stub", {
+      one: async () => {
+        calls.push("one");
+        return { any: "value" };
+      },
+      two: async () => {
+        calls.push("two");
+        return { any: "value" };
+      },
+    });
+    const exec = new Executor({
+      db,
+      integrationLoader: makeLoader({ stub: mod }),
+    });
+    const workflow = makeWorkflow(
+      [
+        { id: "A", integration: "stub", operation: "one", config: {}, onError: "fail" },
+        { id: "B", integration: "stub", operation: "two", config: {}, onError: "fail" },
+      ],
+      // Connection declared but no `when?` clause — unconditional edge.
+      [{ from: "A", to: "B" }],
+    );
+
+    const res = await exec.run(workflow, runId, {});
+    expect(res.status).toBe("success");
+    expect(calls).toEqual(["one", "two"]);
+    db.close();
+  });
+
+  it("malformed `when?` → logs warning, skips the edge (fail-closed)", async () => {
+    const db = openDatabase(":memory:");
+    const q = new RunQueue(db);
+    const runId = q.enqueue("wf-test");
+    q.claim();
+
+    const warn = vi.fn();
+    const calls: string[] = [];
+    const mod = makeIntegration("stub", {
+      a: async () => {
+        calls.push("a");
+        return { x: 1 };
+      },
+      b: async () => {
+        calls.push("b");
+        return { x: 2 };
+      },
+    });
+    const exec = new Executor({
+      db,
+      integrationLoader: makeLoader({ stub: mod }),
+      logger: { debug: () => {}, info: () => {}, warn, error: () => {} },
+    });
+    const workflow = makeWorkflow(
+      [
+        { id: "A", integration: "stub", operation: "a", config: {}, onError: "fail" },
+        { id: "B", integration: "stub", operation: "b", config: {}, onError: "fail" },
+      ],
+      // Malformed jexl — extra braces.
+      [{ from: "A", to: "B", when: "result. ))) {{{" }],
+    );
+
+    const res = await exec.run(workflow, runId, {});
+    // Run as a whole still succeeds — the malformed expression does NOT
+    // crash the run. Instead B is skipped, and a warning is logged.
+    expect(res.status).toBe("success");
+    expect(calls).toEqual(["a"]);
+    expect(warn).toHaveBeenCalled();
+    expect(
+      warn.mock.calls.some((c) => String(c[0]).includes("when-eval")),
+    ).toBe(true);
+    db.close();
+  });
+
+  it("workflow with no connections at all → all nodes run in order (pre-when? behavior preserved)", async () => {
+    const db = openDatabase(":memory:");
+    const q = new RunQueue(db);
+    const runId = q.enqueue("wf-test");
+    q.claim();
+
+    const calls: string[] = [];
+    const mod = makeIntegration("stub", {
+      foo: async () => {
+        calls.push("foo");
+        return { k: 1 };
+      },
+      bar: async () => {
+        calls.push("bar");
+        return { k: 2 };
+      },
+      baz: async () => {
+        calls.push("baz");
+        return { k: 3 };
+      },
+    });
+    const exec = new Executor({
+      db,
+      integrationLoader: makeLoader({ stub: mod }),
+    });
+    const workflow = makeWorkflow(
+      [
+        { id: "a", integration: "stub", operation: "foo", config: {}, onError: "fail" },
+        { id: "b", integration: "stub", operation: "bar", config: {}, onError: "fail" },
+        { id: "c", integration: "stub", operation: "baz", config: {}, onError: "fail" },
+      ],
+      // No connections — classic linear MVP flow.
+      [],
+    );
+    const res = await exec.run(workflow, runId, {});
+    expect(res.status).toBe("success");
+    expect(calls).toEqual(["foo", "bar", "baz"]);
     db.close();
   });
 });

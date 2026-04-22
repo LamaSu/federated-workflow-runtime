@@ -12,6 +12,7 @@ import { WaitForEventCallSchema } from "@delightfulchorus/core";
 import type { DatabaseType, StepRow } from "./db.js";
 import { QueryHelpers } from "./db.js";
 import { TIMEOUT_EVENT_ID } from "./triggers/event.js";
+import { evalWhen } from "./when-eval.js";
 
 /**
  * Runtime executor — replay-based durable execution per §4.3.
@@ -393,11 +394,68 @@ export class Executor {
     const step = makeStepContext();
     const steps: StepRow[] = [];
 
+    // Track per-node outputs (keyed by node.id) so `Connection.when?`
+    // expressions on outgoing edges can reference the source node's
+    // result. A node is "skipped" if NO incoming edge evaluates to true;
+    // skipped nodes don't run but also don't propagate (their absence
+    // deactivates downstream edges automatically).
+    const nodeOutputs = new Map<string, unknown>();
+    const skippedNodes = new Set<string>();
+    const connections = workflow.connections ?? [];
+
     try {
       for (const node of workflow.nodes) {
+        // Decide whether to execute this node based on incoming edges.
+        const incoming = connections.filter((c) => c.to === node.id);
+        let shouldRun: boolean;
+        if (incoming.length === 0) {
+          // Root node (no incoming edges) — always runs. This preserves
+          // the pre-`when?` MVP behavior for workflows with no
+          // connections declared at all.
+          shouldRun = true;
+        } else {
+          // Run iff at least one incoming edge is "active":
+          //   • source node was not skipped
+          //   • source node has a recorded output (it ran successfully)
+          //   • the edge's `when?`, if present, evaluates to true
+          shouldRun = false;
+          for (const conn of incoming) {
+            if (skippedNodes.has(conn.from)) continue;
+            if (!nodeOutputs.has(conn.from)) continue;
+            const sourceOutput = nodeOutputs.get(conn.from);
+            let pass: boolean;
+            if (conn.when && conn.when.trim().length > 0) {
+              pass = await evalWhen(
+                conn.when,
+                {
+                  result: sourceOutput,
+                  input: triggerPayload,
+                  nodeId: conn.from,
+                },
+                logger,
+              );
+            } else {
+              pass = true;
+            }
+            if (pass) {
+              shouldRun = true;
+              break;
+            }
+          }
+        }
+
+        if (!shouldRun) {
+          skippedNodes.add(node.id);
+          logger.debug(
+            `node ${node.id} skipped — no active incoming edges`,
+          );
+          continue;
+        }
+
         const output = await step.run(node.id, () =>
           this.invokeNode(node, triggerPayload, step),
         );
+        nodeOutputs.set(node.id, output);
         const stepRow = this.helpers.getStep(runId, node.id);
         if (stepRow) steps.push(stepRow);
         if (output === undefined) continue;
