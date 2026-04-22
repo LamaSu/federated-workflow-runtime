@@ -1,6 +1,6 @@
 {
   "name": "@delightfulchorus/integration-postgres-query",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Postgres parameterized-query integration — proves non-HTTP drivers + connection-string credentials",
   "type": "module",
   "main": "./dist/index.js",

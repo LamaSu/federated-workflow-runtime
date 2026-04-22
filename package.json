@@ -1,6 +1,6 @@
 {
   "name": "chorus",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "private": true,
   "description": "Federated workflow runtime with crowd-sourced integration maintenance. n8n for the agent era.",
   "license": "MIT",
