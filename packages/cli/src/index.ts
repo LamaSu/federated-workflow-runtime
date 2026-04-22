@@ -38,6 +38,22 @@ export {
 } from "./commands/validate.js";
 
 export {
+  runCompose,
+  composeCommand,
+  ComposeFailedError,
+  renderTypeScriptWorkflow,
+  slugify,
+  deriveSlug,
+  type ComposeOptions,
+  type ComposeResult,
+  type GenerateObjectFn,
+  type GenerateObjectResult,
+  type LanguageModelLike,
+} from "./commands/compose.js";
+
+export { COMPOSE_SYSTEM_PROMPT } from "./prompts/compose-system.js";
+
+export {
   runPatchCommand,
   listPatches,
   type PatchAction,
