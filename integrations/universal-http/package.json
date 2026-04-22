@@ -1,6 +1,6 @@
 {
   "name": "@delightfulchorus/integration-universal-http",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Catalog-driven universal HTTP integration for Chorus. Routes calls to 40+ services using @delightfulchorus/service-catalog declarations.",
   "type": "module",
   "main": "./dist/index.js",
@@ -31,7 +31,8 @@
   "homepage": "https://github.com/LamaSu/federated-workflow-runtime#readme",
   "publishConfig": {
     "access": "public",
-    "registry": "https://registry.npmjs.org/"
+    "registry": "https://registry.npmjs.org/",
+    "provenance": true
   },
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --clean",

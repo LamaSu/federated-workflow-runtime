@@ -1,6 +1,6 @@
 {
   "name": "@delightfulchorus/mcp",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Auto-MCP: expose Chorus integrations as MCP tools (generate or serve inline)",
   "type": "module",
   "main": "./dist/index.js",
@@ -60,7 +60,8 @@
   "homepage": "https://github.com/LamaSu/federated-workflow-runtime#readme",
   "publishConfig": {
     "access": "public",
-    "registry": "https://registry.npmjs.org/"
+    "registry": "https://registry.npmjs.org/",
+    "provenance": true
   },
   "scripts": {
     "build": "tsup src/index.ts src/server.ts src/serve.ts src/generate.ts src/tool-mapping.ts src/credential-client.ts --format esm --dts --clean",

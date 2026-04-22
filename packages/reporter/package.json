@@ -1,6 +1,6 @@
 {
   "name": "@delightfulchorus/reporter",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Failure reporter — PII redaction, signature extraction, registry submission",
   "type": "module",
   "main": "./dist/index.js",
@@ -31,7 +31,8 @@
   "homepage": "https://github.com/LamaSu/federated-workflow-runtime#readme",
   "publishConfig": {
     "access": "public",
-    "registry": "https://registry.npmjs.org/"
+    "registry": "https://registry.npmjs.org/",
+    "provenance": true
   },
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --clean",
