@@ -45,14 +45,14 @@
     "prepublishOnly": "npm run build && npm test"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^2.0.0",
+    "@ai-sdk/anthropic": "^2.0.77",
     "@delightfulchorus/core": "*",
     "@delightfulchorus/mcp": "*",
     "@delightfulchorus/registry": "*",
-    "@delightfulchorus/reporter": "*",
     "@delightfulchorus/repair-agent": "*",
+    "@delightfulchorus/reporter": "*",
     "@delightfulchorus/runtime": "*",
-    "ai": "^5.0.0",
+    "ai": "^5.0.179",
     "commander": "^12.1.0",
     "picocolors": "^1.1.0",
     "zod": "^3.23.0"

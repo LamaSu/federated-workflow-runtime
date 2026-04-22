@@ -245,7 +245,8 @@ describe("runCompose — happy path", () => {
     expect(result.workflow.nodes).toHaveLength(3);
     expect(result.workflow.connections).toHaveLength(2);
     expect(result.workflow.trigger.type).toBe("cron");
-    expect(path.basename(result.filePath)).toBe("linear-bug-digest.ts");
+    // Slug is derived from workflow.name ("Daily Linear bug digest").
+    expect(path.basename(result.filePath)).toBe("daily-linear-bug-digest.ts");
 
     const written = await readFile(result.filePath, "utf8");
     expect(written).toContain('"llm-anthropic"');
