@@ -1,6 +1,6 @@
 {
   "name": "@delightfulchorus/service-catalog",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Typed service catalog for Chorus — JSON declarations for 40+ services (auth, endpoints, operations) consumed by universal-http.",
   "type": "module",
   "main": "./dist/index.js",

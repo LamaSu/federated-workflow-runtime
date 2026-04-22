@@ -1,6 +1,6 @@
 {
   "name": "@delightfulchorus/integration-universal-http",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Catalog-driven universal HTTP integration for Chorus. Routes calls to 40+ services using @delightfulchorus/service-catalog declarations.",
   "type": "module",
   "main": "./dist/index.js",

@@ -152,9 +152,56 @@ jobs:
         if: ${{ github.event.inputs.dry_run == 'true' }}
         run: npm publish --workspaces --access public --dry-run
 
-      - name: Publish to npm (workspaces, provenance)
+      - name: Publish to npm (per-package, provenance, continue-on-error)
         if: ${{ github.event.inputs.dry_run != 'true' }}
-        run: npm publish --workspaces --access public --provenance --loglevel=verbose
+        shell: bash
+        run: |
+          # Publish each workspace individually so one package's failure
+          # (e.g. missing Trusted Publisher binding) doesn't abort the run.
+          # We collect all outcomes and exit 1 at the end only if any failed,
+          # so the summary enumerates succeeded vs failed packages.
+          set -uo pipefail  # intentionally NOT -e
+          declare -a succeeded=()
+          declare -a failed=()
+          while IFS= read -r pkg_json; do
+            pkg_dir=$(dirname "$pkg_json")
+            pkg_name=$(node -e "process.stdout.write(require('./$pkg_json').name)")
+            # Skip private packages (e.g. root)
+            is_private=$(node -e "process.stdout.write(String(require('./$pkg_json').private === true))")
+            if [[ "$is_private" == "true" ]]; then
+              echo "--- skip $pkg_name (private) ---"
+              continue
+            fi
+            echo ""
+            echo "=== Publishing $pkg_name ($pkg_dir) ==="
+            if (cd "$pkg_dir" && npm publish --access public --provenance --loglevel=verbose); then
+              succeeded+=("$pkg_name")
+              echo "[ok] $pkg_name"
+            else
+              failed+=("$pkg_name")
+              echo "[fail] $pkg_name"
+            fi
+          done < <(find packages integrations -maxdepth 2 -name package.json -not -path '*/node_modules/*' | sort)
+          echo ""
+          echo "=== Publish Summary ==="
+          echo "Succeeded (${#succeeded[@]}):"
+          for p in "${succeeded[@]:-}"; do [[ -n "$p" ]] && echo "  + $p"; done
+          echo "Failed (${#failed[@]}):"
+          for p in "${failed[@]:-}"; do [[ -n "$p" ]] && echo "  - $p"; done
+          {
+            echo ""
+            echo "#### Publish Results"
+            echo ""
+            echo "**Succeeded (${#succeeded[@]}):**"
+            for p in "${succeeded[@]:-}"; do [[ -n "$p" ]] && echo "- \`$p\`"; done
+            echo ""
+            echo "**Failed (${#failed[@]}):**"
+            for p in "${failed[@]:-}"; do [[ -n "$p" ]] && echo "- \`$p\`"; done
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [[ ${#failed[@]} -gt 0 ]]; then
+            echo "::error::${#failed[@]} package(s) failed to publish"
+            exit 1
+          fi
         env:
           # npm picks up the OIDC token automatically via the runner when
           # `permissions: id-token: write` is set AND the package has an
