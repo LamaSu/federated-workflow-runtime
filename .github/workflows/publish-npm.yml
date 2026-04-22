@@ -130,7 +130,7 @@ jobs:
 
       - name: Publish to npm (workspaces, provenance)
         if: ${{ github.event.inputs.dry_run != 'true' }}
-        run: npm publish --workspaces --access public --provenance
+        run: npm publish --workspaces --access public --provenance --loglevel=verbose
         env:
           # npm picks up the OIDC token automatically via the runner when
           # `permissions: id-token: write` is set AND the package has an
