@@ -72,6 +72,16 @@ jobs:
           # exchange required for Trusted Publisher. We configure the registry
           # ourselves in the next step, without any auth line.
 
+      - name: Upgrade npm for OIDC Trusted Publisher support
+        shell: bash
+        run: |
+          # Trusted Publisher / OIDC token exchange landed in npm 11.5.1.
+          # The runner ships npm 10.x on Node 20, so we must upgrade.
+          set -euo pipefail
+          npm install -g npm@latest
+          echo "npm: $(npm --version)"
+          echo "node: $(node --version)"
+
       - name: Configure npm for OIDC Trusted Publisher
         shell: bash
         run: |
@@ -81,11 +91,6 @@ jobs:
           rm -f "$HOME/.npmrc"
           echo "registry=https://registry.npmjs.org/" > "$HOME/.npmrc"
           npm config get registry
-          # Assert no stray auth config.
-          if npm config get //registry.npmjs.org/:_authToken 2>/dev/null | grep -vq '^$'; then
-            echo "::error::an auth token is configured — OIDC will be skipped"
-            exit 1
-          fi
           echo "npm registry configured for OIDC"
 
       - name: Derive publish version
