@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type {
   IntegrationModule,
   Logger,
+  MemoryStore,
   Node as WorkflowNode,
   OperationContext,
   OperationHandler,
@@ -12,6 +13,7 @@ import { WaitForEventCallSchema } from "@delightfulchorus/core";
 import type { DatabaseType, StepRow } from "./db.js";
 import { QueryHelpers } from "./db.js";
 import { TIMEOUT_EVENT_ID } from "./triggers/event.js";
+import { evalWhen } from "./when-eval.js";
 
 /**
  * Runtime executor — replay-based durable execution per §4.3.
@@ -151,6 +153,19 @@ export interface StepContext {
    *   - Replay with still-pending row → suspends again.
    */
   waitForEvent(stepName: string, call: WaitForEventCall): Promise<WaitForEventResult>;
+  /**
+   * Per-workflow (optionally per-user) durable KV store.
+   *
+   * Reads/writes are routed through `step.run(...)` so a crash between
+   * a `set()` and the next replay re-executes the set idempotently. The
+   * memoization key embeds the memory key, so different memory keys
+   * don't collide inside a single run.
+   *
+   * Per-user scoping is automatic: the run's trigger payload is
+   * inspected for `userId` (or `user.id`); when present, writes are
+   * scoped to that user. Otherwise the row is workflow-global.
+   */
+  memory: MemoryStore;
 }
 
 export class Executor {
@@ -182,6 +197,15 @@ export class Executor {
   ): Promise<ExecutorResult> {
     const seenNames = new Set<string>();
     const logger = this.logger;
+
+    // Extract userId for memory scoping. We look at `triggerPayload.userId`
+    // first (the common case — webhook body, manual invocation, etc.)
+    // and fall back to `triggerPayload.user.id` for providers that nest
+    // the identity. Anything else → null (workflow-global namespace).
+    const userId = extractUserId(triggerPayload);
+    const workflowId = workflow.id;
+    const helpers = this.helpers;
+    const now = this.now;
 
     const makeStepContext = (): StepContext => ({
       run: async <T,>(name: string, fn: () => Promise<T>): Promise<T> => {
@@ -388,16 +412,122 @@ export class Executor {
         // 4. Suspend — throw a control-flow signal the outer run() catches.
         throw new SuspendForEvent(name, call.eventType);
       },
+
+      memory: {
+        // Both get and set are routed through step.run(...) so repeated
+        // executions of the same handler (replay, retries) don't
+        // duplicate writes or misattribute reads. The step name embeds
+        // the memory key so different keys get different memoization
+        // slots inside the same run.
+        //
+        // NOTE: These closures reference `step` declared below
+        // `makeStepContext()`. That's safe — the closures only dereference
+        // `step` when invoked (after `const step = makeStepContext()`
+        // runs), not when the object literal is constructed.
+        get: async (key: string): Promise<unknown> => {
+          return step.run(
+            `memory:get:${key}`,
+            async () => {
+              const row = helpers.getMemory(workflowId, userId, key);
+              if (!row) return null;
+              try {
+                return JSON.parse(row.value_json);
+              } catch {
+                // Defensive — a corrupted row shouldn't crash the run.
+                logger.warn(
+                  `memory:get:${key} — stored value is not valid JSON, returning null`,
+                );
+                return null;
+              }
+            },
+          );
+        },
+        set: async (key: string, value: unknown): Promise<void> => {
+          // The set is routed through a step.run so a crash between the
+          // SQLite write and the next cache-miss replay is idempotent:
+          // the memoized output (undefined) short-circuits the second
+          // write. Even without memoization the upsert is idempotent by
+          // PK, but step.run keeps the write semantically "once per run
+          // + key".
+          await step.run(`memory:set:${key}`, async () => {
+            helpers.upsertMemory({
+              workflow_id: workflowId,
+              user_id: userId,
+              key,
+              value_json: JSON.stringify(value ?? null),
+              updated_at: now().getTime(),
+            });
+            return null;
+          });
+        },
+      },
     });
 
-    const step = makeStepContext();
+    const step: StepContext = makeStepContext();
     const steps: StepRow[] = [];
+
+    // Track per-node outputs (keyed by node.id) so `Connection.when?`
+    // expressions on outgoing edges can reference the source node's
+    // result. A node is "skipped" if NO incoming edge evaluates to true;
+    // skipped nodes don't run but also don't propagate (their absence
+    // deactivates downstream edges automatically).
+    const nodeOutputs = new Map<string, unknown>();
+    const skippedNodes = new Set<string>();
+    const connections = workflow.connections ?? [];
 
     try {
       for (const node of workflow.nodes) {
+        // Decide whether to execute this node based on incoming edges.
+        const incoming = connections.filter((c) => c.to === node.id);
+        let shouldRun: boolean;
+        if (incoming.length === 0) {
+          // Root node (no incoming edges) — always runs. This preserves
+          // the pre-`when?` MVP behavior for workflows with no
+          // connections declared at all.
+          shouldRun = true;
+        } else {
+          // Run iff at least one incoming edge is "active":
+          //   • source node was not skipped
+          //   • source node has a recorded output (it ran successfully)
+          //   • the edge's `when?`, if present, evaluates to true
+          shouldRun = false;
+          for (const conn of incoming) {
+            if (skippedNodes.has(conn.from)) continue;
+            if (!nodeOutputs.has(conn.from)) continue;
+            const sourceOutput = nodeOutputs.get(conn.from);
+            let pass: boolean;
+            if (conn.when && conn.when.trim().length > 0) {
+              pass = await evalWhen(
+                conn.when,
+                {
+                  result: sourceOutput,
+                  input: triggerPayload,
+                  nodeId: conn.from,
+                },
+                logger,
+              );
+            } else {
+              pass = true;
+            }
+            if (pass) {
+              shouldRun = true;
+              break;
+            }
+          }
+        }
+
+        if (!shouldRun) {
+          skippedNodes.add(node.id);
+          logger.debug(
+            `node ${node.id} skipped — no active incoming edges`,
+          );
+          continue;
+        }
+
         const output = await step.run(node.id, () =>
           this.invokeNode(node, triggerPayload, step),
         );
+        nodeOutputs.set(node.id, output);
         const stepRow = this.helpers.getStep(runId, node.id);
         if (stepRow) steps.push(stepRow);
         if (output === undefined) continue;
@@ -524,4 +654,28 @@ function safeParseJsonExecutor(s: string): unknown {
   } catch {
     return null;
   }
+}
+
+/**
+ * Derive a user-scope identifier from the run's trigger payload for
+ * use with `step.memory`. Supports the two shapes most commonly produced
+ * by webhook/manual triggers:
+ *
+ *   { userId: "abc" }         → "abc"
+ *   { user: { id: "abc" } }   → "abc"
+ *
+ * Anything else (undefined, wrong type, absent) yields null — the
+ * workflow-global namespace.
+ */
+function extractUserId(triggerPayload: unknown): string | null {
+  if (!triggerPayload || typeof triggerPayload !== "object") return null;
+  const p = triggerPayload as Record<string, unknown>;
+  const direct = p["userId"];
+  if (typeof direct === "string" && direct.length > 0) return direct;
+  const nested = p["user"];
+  if (nested && typeof nested === "object") {
+    const nid = (nested as Record<string, unknown>)["id"];
+    if (typeof nid === "string" && nid.length > 0) return nid;
+  }
+  return null;
 }

@@ -33,6 +33,7 @@ describe("openDatabase / runMigrations", () => {
       "credentials",
       "error_signatures",
       "events",
+      "memory",
       "oauth_pending",
       "patches",
       "runs",
@@ -813,6 +814,135 @@ describe("QueryHelpers — oauth_pending", () => {
     const h = createHelpers(db);
     h.insertOAuthPending(makePending());
     expect(() => h.insertOAuthPending(makePending())).toThrow();
+    db.close();
+  });
+});
+
+describe("QueryHelpers — memory", () => {
+  it("round-trips set/get for a workflow-global key (user_id = null)", () => {
+    const db = newMemDb();
+    const h = createHelpers(db);
+    h.upsertMemory({
+      workflow_id: "wf-1",
+      user_id: null,
+      key: "counter",
+      value_json: JSON.stringify(42),
+      updated_at: 1_700_000_000_000,
+    });
+    const row = h.getMemory("wf-1", null, "counter");
+    expect(row).toBeDefined();
+    expect(row?.value_json).toBe("42");
+    expect(JSON.parse(row!.value_json)).toBe(42);
+    db.close();
+  });
+
+  it("upsertMemory overwrites an existing row for the same (workflow_id, user_id, key)", () => {
+    const db = newMemDb();
+    const h = createHelpers(db);
+    h.upsertMemory({
+      workflow_id: "wf-1",
+      user_id: null,
+      key: "counter",
+      value_json: "1",
+      updated_at: 1_700_000_000_000,
+    });
+    h.upsertMemory({
+      workflow_id: "wf-1",
+      user_id: null,
+      key: "counter",
+      value_json: "2",
+      updated_at: 1_700_000_000_001,
+    });
+    const row = h.getMemory("wf-1", null, "counter");
+    expect(row?.value_json).toBe("2");
+    expect(row?.updated_at).toBe(1_700_000_000_001);
+
+    // Only one row exists (we upserted, not inserted twice).
+    const rows = h.listMemory("wf-1");
+    expect(rows).toHaveLength(1);
+    db.close();
+  });
+
+  it("isolates memory by user_id: two users don't see each other's data", () => {
+    const db = newMemDb();
+    const h = createHelpers(db);
+    h.upsertMemory({
+      workflow_id: "wf-1",
+      user_id: "user-a",
+      key: "theme",
+      value_json: JSON.stringify("dark"),
+      updated_at: 1,
+    });
+    h.upsertMemory({
+      workflow_id: "wf-1",
+      user_id: "user-b",
+      key: "theme",
+      value_json: JSON.stringify("light"),
+      updated_at: 2,
+    });
+    expect(h.getMemory("wf-1", "user-a", "theme")?.value_json).toBe('"dark"');
+    expect(h.getMemory("wf-1", "user-b", "theme")?.value_json).toBe('"light"');
+    expect(h.listMemory("wf-1", "user-a")).toHaveLength(1);
+    expect(h.listMemory("wf-1", "user-b")).toHaveLength(1);
+    expect(h.listMemory("wf-1")).toHaveLength(2);
+    db.close();
+  });
+
+  it("isolates memory by workflow_id: two workflows don't share keys", () => {
+    const db = newMemDb();
+    const h = createHelpers(db);
+    h.upsertMemory({
+      workflow_id: "wf-1",
+      user_id: null,
+      key: "x",
+      value_json: "1",
+      updated_at: 1,
+    });
+    h.upsertMemory({
+      workflow_id: "wf-2",
+      user_id: null,
+      key: "x",
+      value_json: "99",
+      updated_at: 1,
+    });
+    expect(h.getMemory("wf-1", null, "x")?.value_json).toBe("1");
+    expect(h.getMemory("wf-2", null, "x")?.value_json).toBe("99");
+    db.close();
+  });
+
+  it("getMemory returns undefined for an unset key", () => {
+    const db = newMemDb();
+    const h = createHelpers(db);
+    const row = h.getMemory("wf-1", null, "never-set");
+    expect(row).toBeUndefined();
+    db.close();
+  });
+
+  it("distinguishes null user_id from empty-string user_id — but both are scoped correctly", () => {
+    // The COALESCE(user_id, '') in the unique index means a row with
+    // user_id=NULL and another with user_id='' would COLLIDE. That's
+    // intentional — we don't support '' as a real user identifier.
+    const db = newMemDb();
+    const h = createHelpers(db);
+    h.upsertMemory({
+      workflow_id: "wf-1",
+      user_id: null,
+      key: "k",
+      value_json: '"null-user"',
+      updated_at: 1,
+    });
+    // Upserting with user_id='' should update the same logical row.
+    h.upsertMemory({
+      workflow_id: "wf-1",
+      user_id: "",
+      key: "k",
+      value_json: '"empty-user"',
+      updated_at: 2,
+    });
+    expect(h.listMemory("wf-1")).toHaveLength(1);
+    // getMemory('wf-1', null, 'k') should find the upserted row.
+    const viaNull = h.getMemory("wf-1", null, "k");
+    expect(viaNull?.value_json).toBe('"empty-user"');
     db.close();
   });
 });

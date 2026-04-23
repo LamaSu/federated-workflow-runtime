@@ -11,7 +11,24 @@ backwards-compatible bug fixes.
 
 ## [Unreleased]
 
-Nothing yet — `0.1.0` is the current edge.
+### Added
+
+#### Workflow runtime (`@delightfulchorus/runtime`)
+
+- **`Connection.when?` conditional routing.** Each connection in a workflow
+  may carry an optional jexl expression (e.g. `"result.status == 'ok'"`).
+  The executor evaluates every incoming edge's `when?` against the source
+  node's output before running the target; a node with no active incoming
+  edges is skipped. Malformed or erroring expressions fail closed
+  (edge skipped, warning logged, run continues). No behavior change for
+  workflows that don't declare any connections.
+- **`step.memory.get` / `step.memory.set`.** New per-workflow (optionally
+  per-user) durable KV store exposed on `StepContext.memory`. Scope is
+  `(workflow_id, user_id?)`, where `user_id` is derived from
+  `triggerPayload.userId` (or `triggerPayload.user.id`); absent → workflow-
+  global namespace. Reads and writes route through `step.run(...)` so a
+  crash between write and replay is idempotent. Values are JSON-serialized.
+  New `memory` table + indexes in the SQLite schema; idempotent migration.
 
 ## [0.1.0] — 2026-04-14
 
