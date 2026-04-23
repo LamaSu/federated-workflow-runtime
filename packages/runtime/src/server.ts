@@ -6,6 +6,7 @@ import Fastify, {
 } from "fastify";
 import type { IntegrationLoader, SubgraphRunner } from "./executor.js";
 import type { ManifestLookup, RefreshFn } from "./oauth.js";
+import type { ReputationLookup } from "./trust-policy.js";
 import { openDatabase, QueryHelpers, type DatabaseType, type RunRow } from "./db.js";
 import { loadKeyFromEnv } from "./credentials.js";
 import { RunQueue } from "./queue.js";
@@ -72,6 +73,31 @@ export interface CreateServerOptions {
    * Defaults to `process.env.CHORUS_API_TOKEN` if that env var is set.
    */
   apiToken?: string | null;
+  /**
+   * Wave 3 — opt-in worknet receiver. When set, mounts POST /api/run +
+   * GET /api/run/:id/status (handled in api/remote-run.ts). Default OFF;
+   * the CLI flag `chorus run --remote-callable` toggles this on. The
+   * default 127.0.0.1 binding is preserved either way — operators who
+   * want callers from outside also rebind via `chorus run --host 0.0.0.0`.
+   */
+  remoteCallable?: {
+    /**
+     * Optional Ed25519 pubkey allowlist (base64). When set, only callers
+     * whose `callerIdentity.publicKey` appears in this list are accepted.
+     * Empty/omitted → accept any caller whose signature verifies.
+     */
+    acceptedCallers?: string[];
+    /**
+     * Reputation lookup. Forwarded into the trust validator so callers'
+     * `trustPolicy.minReputation` hints can be honored. When absent, calls
+     * with minReputation in their trustPolicy are rejected (fail-closed).
+     */
+    getOperatorReputation?: ReputationLookup;
+    /** Override the timestamp skew window (default ±5min). */
+    timestampSkewMs?: number;
+    /** Override `now` (test hook). */
+    now?: () => number;
+  };
 }
 
 export interface ChorusServer {
@@ -227,6 +253,10 @@ export function createServer(opts: CreateServerOptions): ChorusServer {
   registerApiRoutes(app, db, {
     apiToken,
     eventDispatcher: opts.eventDispatcher,
+    // Wave 3 — wire the worknet receiver routes through. registerApiRoutes
+    // mounts them ONLY when this option is set so `chorus run` (without
+    // --remote-callable) leaves no remote-invocation surface exposed.
+    remoteCallable: opts.remoteCallable,
   });
 
   // POST /ask/:runId/:stepName — webhook endpoint for step.askUser answers.

@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { DatabaseType } from "../db.js";
 import type { EventDispatcher } from "../triggers/event.js";
 import type { RuntimeCredentialService } from "../credential-service.js";
+import type { ReputationLookup } from "../trust-policy.js";
 import { registerManifestRoute, API_VERSION } from "./manifest.js";
 import { registerWorkflowsRoutes } from "./workflows.js";
 import { registerRunsRoutes } from "./runs.js";
@@ -11,6 +12,7 @@ import { registerIntegrationsRoutes } from "./integrations.js";
 import { registerEventsRoutes } from "./events.js";
 import { registerOAuthRoutes } from "./oauth.js";
 import { registerCredentialsRoutes } from "./credentials.js";
+import { registerRemoteRunRoutes } from "./remote-run.js";
 
 /**
  * Mount the read-only JSON API under /api/*.
@@ -51,6 +53,26 @@ export interface RegisterApiOptions {
    * exchange for tests.
    */
   fetchFn?: typeof fetch;
+  /**
+   * Wave 3 worknet — when set, mounts POST /api/run + GET /api/run/:id/status
+   * for remote workflow invocations. Default OFF: every chorus instance
+   * that wants to be call-able from outside opts in via `chorus run
+   * --remote-callable`. See api/remote-run.ts for the per-call security
+   * model (signature verify + hash pinning + optional acceptedCallers).
+   */
+  remoteCallable?: {
+    /**
+     * Optional Ed25519 pubkey allowlist (base64). Empty/omitted → accept
+     * any caller whose signature verifies.
+     */
+    acceptedCallers?: string[];
+    /** Reputation lookup for trustPolicy.minReputation enforcement. */
+    getOperatorReputation?: ReputationLookup;
+    /** Override timestamp skew window (default ±5min). */
+    timestampSkewMs?: number;
+    /** Override `now` (test hook). */
+    now?: () => number;
+  };
 }
 
 export function registerApiRoutes(
@@ -108,6 +130,15 @@ export function registerApiRoutes(
       fetchFn: opts.fetchFn,
     });
   }
+  // Wave 3 — opt-in worknet receiver routes.
+  if (opts.remoteCallable) {
+    registerRemoteRunRoutes(app, db, {
+      acceptedCallers: opts.remoteCallable.acceptedCallers,
+      getOperatorReputation: opts.remoteCallable.getOperatorReputation,
+      timestampSkewMs: opts.remoteCallable.timestampSkewMs,
+      now: opts.remoteCallable.now,
+    });
+  }
 }
 
 export { API_VERSION, CHORUS_API_MEDIA_TYPE, buildManifest } from "./manifest.js";
@@ -145,3 +176,8 @@ export {
   type WaitingStepSummary,
   type RegisterEventsRoutesOptions,
 } from "./events.js";
+export {
+  registerRemoteRunRoutes,
+  computeStepsHashRoot,
+  type RegisterRemoteRunOptions,
+} from "./remote-run.js";

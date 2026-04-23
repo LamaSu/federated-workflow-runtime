@@ -45,6 +45,18 @@ export interface StartServerOptions {
    * the callback are swallowed — server startup must not depend on it.
    */
   onListen?: (url: string) => void | Promise<void>;
+  /**
+   * Wave 3 — when set, mounts POST /api/run + GET /api/run/:id/status
+   * for incoming worknet calls. Wired by `chorus run --remote-callable`.
+   * Default OFF so a fresh `chorus run` exposes no remote-invocation
+   * surface. See packages/runtime/src/api/remote-run.ts for details.
+   */
+  remoteCallable?: {
+    /** Optional Ed25519 pubkey allowlist (base64). */
+    acceptedCallers?: string[];
+    /** Override skew window. */
+    timestampSkewMs?: number;
+  };
 }
 
 /**
@@ -99,6 +111,16 @@ export async function startServer(opts: StartServerOptions): Promise<void> {
   const server = createServer({
     dbPath: opts.config.database.path,
     integrationLoader: opts.integrationLoader ?? defaultLoader(),
+    // Wave 3 — opt-in worknet receiver routes mount only when --remote-callable
+    // was passed to `chorus run`. Default-off keeps the 127.0.0.1 default safe.
+    ...(opts.remoteCallable
+      ? {
+          remoteCallable: {
+            acceptedCallers: opts.remoteCallable.acceptedCallers,
+            timestampSkewMs: opts.remoteCallable.timestampSkewMs,
+          },
+        }
+      : {}),
   });
 
   const helpers = new QueryHelpers(server.db);

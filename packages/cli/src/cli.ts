@@ -114,14 +114,38 @@ export function buildProgram(): Command {
     .description("start the runtime (foreground). With a workflow id, run just that one.")
     .option("--dry-run", "parse + validate workflows, do not start the executor")
     .option("--no-follow", "do not tail step output")
-    .action(async (workflow: string | undefined, opts: { dryRun?: boolean; follow?: boolean }) => {
-      const code = await runRun({
-        target: workflow,
-        dryRun: opts.dryRun,
-        follow: opts.follow,
-      });
-      process.exit(code);
-    });
+    // Wave 3 worknet — opt-in to accepting remote workflow invocations.
+    // Default OFF: a fresh `chorus run` exposes no remote-callable surface.
+    .option(
+      "--remote-callable",
+      "expose POST /api/run + GET /api/run/:id/status so external chorus instances can invoke this instance's workflows (Wave 3 worknet — see docs)",
+    )
+    .option(
+      "--accepted-caller <pubkey>",
+      "base64 Ed25519 public key allowed to invoke this instance via --remote-callable. Repeatable; without any, every signed caller is accepted.",
+      (v: string, prev: string[] = []) => prev.concat([v]),
+      [] as string[],
+    )
+    .action(
+      async (
+        workflow: string | undefined,
+        opts: {
+          dryRun?: boolean;
+          follow?: boolean;
+          remoteCallable?: boolean;
+          acceptedCaller?: string[];
+        },
+      ) => {
+        const code = await runRun({
+          target: workflow,
+          dryRun: opts.dryRun,
+          follow: opts.follow,
+          remoteCallable: opts.remoteCallable,
+          acceptedCallers: opts.acceptedCaller,
+        });
+        process.exit(code);
+      },
+    );
 
   // chorus run history <runId> ─ inspect per-step rows for a past run
   runCmd
