@@ -175,6 +175,81 @@ a3f21c9e0d8b   slack-send.postMessage HTTPError    42   8s ago
   TLS). The read-only API doesn't leak secrets, but error contexts and
   workflow names may be sensitive.
 
+## Editor mode: `chorus ui --editor`
+
+A different use case from "show me my runs" — sometimes you want to
+view or edit the workflow graph itself. `chorus ui --editor` emits a
+standalone HTML file that loads [Drawflow](https://github.com/jerosoler/Drawflow)
+from jsDelivr and renders your workflow as a visual canvas.
+
+It's the same philosophy as the dashboard generator (single file, no
+build step, works offline after first load) applied to the graph editor
+use case.
+
+```bash
+# Edit a workflow by id (resolves chorus/<id>.ts or the runtime's API).
+chorus ui --editor --workflow linear-bug-digest
+
+# Edit from a file path.
+chorus ui --editor --workflow ./chorus/linear-bug-digest.ts
+
+# With a style:
+chorus ui --editor --workflow linear-bug-digest --style 'solarpunk terminal'
+
+# With an LLM-customized layout (needs ANTHROPIC_API_KEY, like `chorus compose`):
+chorus ui --editor --workflow linear-bug-digest \
+  --prompt 'pastel rounded cards, bigger fonts, italic operation names'
+
+# Custom output path:
+chorus ui --editor --workflow linear-bug-digest --out /tmp/my-editor.html
+```
+
+The generated file ships with:
+
+- **Drawflow CDN** (two lines from jsDelivr — `drawflow.min.css` + `drawflow.min.js`).
+- **Inlined transform** — a small vanilla JS bundle that converts between
+  Chorus `Workflow` (nodes + connections) and Drawflow's `{ drawflow: { Home: { data: {...} } } }`
+  graph format. Round-trips `trigger`, `when` expressions, `onError`, and
+  primitive `config` fields.
+- **Palette sidebar** populated from either (a) the running runtime's
+  `/api/integrations` endpoint, or (b) a local scan of `./integrations/*/package.json`
+  when the runtime isn't up.
+- **Top bar** with editable workflow name, Load / Save / Export buttons,
+  and a dirty-state indicator.
+- **Canvas** with drag-to-add from the palette, click-to-edit config
+  inputs inside each node, and a click-to-edit popover for `when` edge
+  expressions.
+- **Keyboard shortcuts**: Ctrl/Cmd+S to save, Delete/Backspace to remove
+  the selected node.
+- **Save fallback**: the Chorus runtime API is read-only by design. When
+  Save hits a 404/405, the editor copies the full Chorus JSON to the
+  clipboard and shows a banner telling the user to persist it manually
+  (via `chorus compose` regeneration, a file write, or `chorus share`).
+
+### Round-trip guarantee
+
+Export from the canvas → `drawflowToChorus` → Zod-validated Chorus
+workflow. Tests at `packages/cli/src/lib/drawflow-transform.test.ts` pin:
+
+- every `id`, `integration`, `operation`, `onError`, and `config` field
+  survives a round-trip,
+- every `Connection.when` predicate is preserved on the matching edge,
+- the restored workflow passes `WorkflowSchema.parse` without retouching,
+- a sibling fixture ensures the inlined browser copy of the transform
+  produces identical output to the Node-side copy.
+
+See the sample output at `ai/research/sample-editor.html` (generated
+from `ai/research/sample-composed-workflow.ts`).
+
+### Why Drawflow?
+
+Single-file, CDN-friendly, zero build. The scout report at
+`ai/research/landscape-chorus-expansion-2026-04-22.md` evaluated React
+Flow, Rete, Litegraph, and JsPlumb — Drawflow was the only one that
+satisfied the "open one HTML file and it works" constraint. For users
+who want React Flow's polish, the transform format is just JSON — wrap
+your own editor around it.
+
 ## FAQ
 
 **Why no hardcoded UI?** Every hardcoded UI is wrong for somebody. The one
