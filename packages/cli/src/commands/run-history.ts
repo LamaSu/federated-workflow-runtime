@@ -290,9 +290,10 @@ export async function runRunReplay(opts: RunReplayOptions): Promise<number> {
     return 1;
   }
 
-  // Pre-validate every mutate path so we surface bad syntax BEFORE opening
-  // the DB or hitting the runtime. parsePath is a runtime export, so this
-  // belongs after loadRuntime — but we can build the value map first.
+  // Build mutations + pre-validate paths so we surface bad input BEFORE
+  // opening the DB. parsePath is a pure runtime export that throws
+  // ForkRunError on syntax errors; running it client-side gives a faster
+  // and clearer error than letting forkRun fail mid-transaction.
   let mutations: Record<string, unknown>;
   try {
     mutations = await buildMutations(opts.mutates);
@@ -300,9 +301,6 @@ export async function runRunReplay(opts: RunReplayOptions): Promise<number> {
     writeErr(pc.red(`✗ ${(err as Error).message}\n`));
     return 1;
   }
-
-  // Validate mutation paths against the parser before touching the DB.
-  // parsePath is a pure function that throws ForkRunError on syntax errors.
   for (const p of Object.keys(mutations)) {
     try {
       parsePath(p);
