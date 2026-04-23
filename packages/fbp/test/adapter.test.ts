@@ -193,4 +193,51 @@ describe("chorusToFbp", () => {
     expect(ast.connections[0]!.src!.process).toBe("A");
     expect(ast.connections[0]!.tgt.process).toBe("B");
   });
+
+  it("drops Node.fallbacks gracefully (FBP has no fallback concept)", () => {
+    // FBP text has no notion of a fallback chain. A workflow that declares
+    // `Node.fallbacks` round-trips lossily on the FBP side: chorusToFbp
+    // produces a valid AST (no extra processes for fallbacks); a re-parse
+    // and fbpToChorus yields a workflow without the fallbacks (the field
+    // is simply absent). This is by design — fallbacks are a runtime-only
+    // construct on the Chorus side.
+    const wf: ChorusWorkflow & {
+      nodes: Array<
+        ChorusWorkflow["nodes"][number] & {
+          fallbacks?: Array<{
+            integration: string;
+            operation: string;
+            config: Record<string, unknown>;
+          }>;
+        }
+      >;
+    } = {
+      ...META,
+      version: 1,
+      active: true,
+      trigger: { type: "manual" },
+      nodes: [
+        {
+          id: "A",
+          integration: "primary",
+          operation: "go",
+          config: {},
+          onError: "retry",
+          // Extra field. The adapter doesn't know about it; it should
+          // silently ignore it on emit.
+          fallbacks: [
+            { integration: "fb1", operation: "go", config: {} },
+            { integration: "fb2", operation: "go", config: {} },
+          ],
+        },
+      ],
+      connections: [],
+    };
+    const ast = chorusToFbp(wf);
+    // Only ONE process in the FBP output — the primary. Fallbacks did NOT
+    // become extra FBP processes (we don't render them as separate nodes).
+    expect(Object.keys(ast.processes)).toEqual(["A"]);
+    // No extra connections injected for the fallbacks.
+    expect(ast.connections).toHaveLength(0);
+  });
 });

@@ -28,6 +28,29 @@ export const TriggerSchema = z.discriminatedUnion("type", [
 
 // ── Workflow & Nodes ────────────────────────────────────────────────────────
 
+/**
+ * Reference to an alternate (integration, operation) used as a fallback
+ * when a Node's primary call exhausts its retry budget. Borrows from
+ * LangChain's `with_fallbacks` pattern but declared on the Node itself
+ * (not as a runtime wrapper).
+ *
+ * Intentionally strict: a NodeRef cannot have its own retry policy,
+ * onError disposition, or nested fallbacks. Fallbacks are tried in
+ * declaration order; the first success short-circuits the chain. If
+ * every fallback also fails, the executor surfaces the ORIGINAL primary
+ * failure (with metadata listing the fallbacks that were tried).
+ *
+ * The fallback handler receives the SAME `inputs` the primary received
+ * — a fallback is meant to be a drop-in alternative, not a different
+ * call shape. If a fallback truly needs different inputs, model it as
+ * a separate node + a `Connection.when?` route instead.
+ */
+export const NodeRefSchema = z.object({
+  integration: z.string(),
+  operation: z.string(),
+  config: z.record(z.unknown()).default({}),
+});
+
 export const NodeSchema = z.object({
   id: z.string(),
   integration: z.string(),
@@ -42,6 +65,19 @@ export const NodeSchema = z.object({
     })
     .optional(),
   onError: z.enum(["fail", "continue", "retry"]).default("retry"),
+  /**
+   * Optional fallback chain. After the primary `(integration, operation)`
+   * exhausts its retry budget, the executor tries each fallback in order.
+   * The first success returns its output as the node's output. If all
+   * fallbacks also fail, the executor propagates the original primary
+   * failure annotated with the list of fallback attempts.
+   *
+   * Single-level only — fallbacks themselves cannot have fallbacks.
+   * Each fallback attempt is recorded as its own step row named
+   * `<nodeId>.fallback.<i>` so the audit trail shows exactly which
+   * alternates ran.
+   */
+  fallbacks: z.array(NodeRefSchema).optional(),
 });
 
 export const ConnectionSchema = z.object({

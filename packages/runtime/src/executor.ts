@@ -4,12 +4,13 @@ import type {
   Logger,
   MemoryStore,
   Node as WorkflowNode,
+  NodeRef,
   OperationContext,
   OperationHandler,
   WaitForEventCall,
   Workflow,
 } from "@delightfulchorus/core";
-import { WaitForEventCallSchema } from "@delightfulchorus/core";
+import { FallbacksExhaustedError, WaitForEventCallSchema } from "@delightfulchorus/core";
 import type { DatabaseType, StepRow } from "./db.js";
 import { QueryHelpers } from "./db.js";
 import { TIMEOUT_EVENT_ID } from "./triggers/event.js";
@@ -646,13 +647,33 @@ export class Executor {
   }
 
   /**
-   * Invoke a single node with retry + backoff. Exposed as a named method so
-   * tests can stub invocation cleanly.
+   * Invoke a single node with retry + backoff, plus optional fallback chain.
+   * Exposed as a named method so tests can stub invocation cleanly.
+   *
+   * Execution model:
+   *   1. Try primary `(node.integration, node.operation)` with the node's
+   *      retry policy. Each attempt runs in-process; failures are retried
+   *      per `computeBackoff`, capped at `retry.maxAttempts`. Suspension
+   *      signals (waitForEvent) propagate without retry.
+   *   2. If the primary exhausts its retry budget AND `node.fallbacks` is
+   *      non-empty, iterate fallbacks in declaration order. Each fallback
+   *      attempt is wrapped in `stepCtx.run('<nodeId>.fallback.<i>', ...)`
+   *      so it gets its own memoized step row — replay short-circuits a
+   *      cached fallback success without re-invoking. Fallbacks themselves
+   *      get NO retry budget (single attempt each); per spec they're
+   *      single-level only and meant to be drop-in alternatives.
+   *   3. First fallback success returns its output as the node's output.
+   *   4. If every fallback also fails, throw `FallbacksExhaustedError`
+   *      carrying the original primary failure (most diagnostically useful)
+   *      plus a list of the attempted fallbacks and their errors.
    *
    * When `stepCtx` is provided, it's attached to the OperationContext as a
    * `step` property so integration handlers can call `step.run(...)` and
    * `step.waitForEvent(...)` as sub-steps within a single node. Handlers
-   * opt-in by destructuring; otherwise the field is ignored.
+   * opt-in by destructuring; otherwise the field is ignored. `stepCtx` is
+   * also REQUIRED to invoke fallbacks (we use it to write their step rows);
+   * if a node declares fallbacks but is invoked without stepCtx, we throw
+   * an explicit error rather than silently skipping them.
    */
   async invokeNode(
     node: WorkflowNode,
@@ -668,8 +689,6 @@ export class Executor {
         }
       : DEFAULT_RETRY;
 
-    const handler = await this.resolveHandler(node);
-    const input = { ...(node.inputs ?? {}), triggerPayload };
     const ctx: OperationContext = {
       credentials: this.credentialsFor(node.integration),
       logger: this.logger,
@@ -681,13 +700,91 @@ export class Executor {
       (ctx as OperationContext & { step: StepContext }).step = stepCtx;
     }
 
+    // ── Primary attempt with retry budget ──────────────────────────────
+    const primaryResult = await this.tryPrimary(node, triggerPayload, ctx, retryCfg);
+    if (primaryResult.kind === "success") {
+      return primaryResult.value;
+    }
+    const primaryErr = primaryResult.error;
+
+    // ── Fallback chain ─────────────────────────────────────────────────
+    const fallbacks = node.fallbacks ?? [];
+    if (fallbacks.length === 0) {
+      throw primaryErr;
+    }
+    if (!stepCtx) {
+      // Defensive: invokeNode is callable without stepCtx (some tests do
+      // this), but fallbacks REQUIRE per-attempt memoized step rows. If
+      // someone declares fallbacks without going through run(), surface
+      // the misuse rather than silently dropping fallbacks.
+      throw new Error(
+        `node ${node.id} declares ${fallbacks.length} fallbacks but was invoked without a StepContext`,
+      );
+    }
+
+    const attempts: Array<{ integration: string; operation: string; error: string }> = [];
+    for (let i = 0; i < fallbacks.length; i++) {
+      const fb = fallbacks[i]!;
+      const fbStepName = `${node.id}.fallback.${i}`;
+      try {
+        // step.run gives us memoization: on replay, a previously-successful
+        // fallback short-circuits without re-invocation. step.run also
+        // writes the step row, so the audit trail records exactly which
+        // fallback ran. Pre-existing failed fallback rows DO re-execute
+        // (step.run only short-circuits on status='success').
+        const out = await stepCtx.run(fbStepName, async () => {
+          return await this.invokeFallback(node, fb, triggerPayload, ctx);
+        });
+        return out;
+      } catch (err) {
+        if (err instanceof SuspendForEvent) throw err;
+        const fbErr = err as Error;
+        attempts.push({
+          integration: fb.integration,
+          operation: fb.operation,
+          error: fbErr.message,
+        });
+        this.logger.warn(
+          `node ${node.id} fallback[${i}] (${fb.integration}/${fb.operation}) failed: ${fbErr.message}`,
+        );
+      }
+    }
+
+    // All fallbacks failed.
+    throw new FallbacksExhaustedError({
+      message: `node ${node.id}: primary (${node.integration}/${node.operation}) and all ${fallbacks.length} fallback(s) failed; original error: ${primaryErr.message}`,
+      integration: node.integration,
+      operation: node.operation,
+      cause: primaryErr,
+      fallbackAttempts: attempts,
+    });
+  }
+
+  /**
+   * Run the primary handler with the node's retry budget. Returns either
+   * `{ kind: 'success', value }` or `{ kind: 'failed', error }` so the
+   * caller (invokeNode) can decide to invoke fallbacks vs. propagate.
+   *
+   * Suspension signals (`SuspendForEvent`) propagate via throw — they're
+   * NOT failures and never trigger fallbacks.
+   */
+  private async tryPrimary(
+    node: WorkflowNode,
+    triggerPayload: unknown,
+    ctx: OperationContext,
+    retryCfg: RetryPolicy,
+  ): Promise<{ kind: "success"; value: unknown } | { kind: "failed"; error: Error }> {
+    const handler = await this.resolveHandler(node);
+    const input = { ...(node.inputs ?? {}), triggerPayload };
+
     let lastErr: Error | null = null;
     for (let attempt = 1; attempt <= retryCfg.maxAttempts; attempt++) {
       if (this.opts.signal?.aborted) {
         throw new Error("Executor aborted");
       }
       try {
-        return await handler(input, ctx);
+        const value = await handler(input, ctx);
+        return { kind: "success", value };
       } catch (err) {
         // Suspension signals are NOT retryable — they're cooperative pauses
         // for waitForEvent. Propagate immediately.
@@ -702,7 +799,48 @@ export class Executor {
         await this.sleep(delay);
       }
     }
-    throw lastErr ?? new Error("Unknown executor error");
+    return { kind: "failed", error: lastErr ?? new Error("Unknown executor error") };
+  }
+
+  /**
+   * Invoke a single fallback once, with no retry. Resolves the alternate
+   * integration/operation and runs it with the SAME inputs the primary
+   * received (per NodeRefSchema docstring: drop-in alternative). Throws on
+   * failure so the caller can record the attempt and proceed to the next
+   * fallback.
+   *
+   * The credentials passed to the fallback handler are scoped to the
+   * fallback's integration (NOT the primary's), since they're separate
+   * connectors that may use entirely different services.
+   */
+  private async invokeFallback(
+    primaryNode: WorkflowNode,
+    fb: NodeRef,
+    triggerPayload: unknown,
+    primaryCtx: OperationContext,
+  ): Promise<unknown> {
+    const mod = await this.opts.integrationLoader(fb.integration);
+    const handler = mod.operations[fb.operation];
+    if (!handler) {
+      throw new Error(
+        `Fallback integration "${fb.integration}" has no operation "${fb.operation}"`,
+      );
+    }
+    const input = { ...(primaryNode.inputs ?? {}), triggerPayload };
+    // Re-resolve credentials for the fallback's integration (different
+    // service → different credential row). We carry over signal/logger
+    // and the optional `step` property so handlers retain access to
+    // sub-step capabilities even inside a fallback.
+    const fbCtx: OperationContext = {
+      credentials: this.credentialsFor(fb.integration),
+      logger: this.logger,
+      signal: this.opts.signal ?? new AbortController().signal,
+    };
+    const stepProp = (primaryCtx as OperationContext & { step?: StepContext }).step;
+    if (stepProp) {
+      (fbCtx as OperationContext & { step: StepContext }).step = stepProp;
+    }
+    return await handler(input, fbCtx);
   }
 
   private async resolveHandler(node: WorkflowNode): Promise<OperationHandler> {

@@ -91,4 +91,21 @@ describe("fbp → Chorus → fbp round-trip", () => {
     expect(parsedOut.processes).toEqual(parsedOriginal.processes);
     expect(parsedOut.connections).toEqual(parsedOriginal.connections);
   });
+
+  it("FBP-source round-trip: a workflow that originates from FBP never gains fallbacks", () => {
+    // A workflow constructed via `parseFbp → fbpToChorus` has no Node.fallbacks
+    // (since FBP can't express them). Round-tripping back to FBP and forward
+    // again preserves that absence — the fallback feature is opt-in only on
+    // workflows authored as Chorus JSON.
+    const source = "A(MyComp) OUT -> IN B(Other)";
+    const ast1 = parseFbp(source);
+    const wf1 = fbpToChorus(ast1, META);
+    expect(wf1.nodes[0]).not.toHaveProperty("fallbacks");
+    expect(wf1.nodes[1]).not.toHaveProperty("fallbacks");
+
+    const text2 = roundtrip(source);
+    const wf2 = fbpToChorus(parseFbp(text2), META);
+    expect(wf2.nodes[0]).not.toHaveProperty("fallbacks");
+    expect(wf2.nodes[1]).not.toHaveProperty("fallbacks");
+  });
 });
