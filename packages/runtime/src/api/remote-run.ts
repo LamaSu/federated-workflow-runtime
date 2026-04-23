@@ -31,9 +31,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import type { DatabaseType, RunStatus, StepRow } from "../db.js";
+import type { DatabaseType, RunRow, RunStatus, StepRow, WorkflowRow } from "../db.js";
 import { QueryHelpers } from "../db.js";
-import { RunQueue } from "../queue.js";
 import {
   computeWorkflowHash,
   envelopeBytes,
@@ -114,7 +113,6 @@ export function registerRemoteRunRoutes(
   opts: RegisterRemoteRunOptions = {},
 ): void {
   const helpers = new QueryHelpers(db);
-  const queue = new RunQueue(db);
   const acceptedCallers = (opts.acceptedCallers ?? []).filter(
     (k) => k && k.length > 0,
   );
@@ -145,37 +143,33 @@ export function registerRemoteRunRoutes(
       };
     }
 
-    // 3. Resolve the workflow locally. Reject 404 BEFORE signature verify
-    //    so an attacker can't probe the workflow registry by burning
-    //    signature work.
-    const wfRow = helpers.getWorkflow(workflowRef);
-    if (!wfRow) {
-      // Try parsing an `@version` suffix: `transcribe@v3` or `transcribe@3`.
+    // 3. Resolve the workflow locally. Try plain id first, then parse an
+    //    optional `@version` suffix (`transcribe@v3` or `transcribe@3`).
+    //    Reject 404 BEFORE signature verify so an attacker can't probe the
+    //    workflow registry by burning signature work.
+    let workflow: WorkflowRow | undefined = helpers.getWorkflow(workflowRef);
+    if (!workflow) {
       const at = workflowRef.lastIndexOf("@");
-      let resolved: typeof wfRow = wfRow;
       if (at > 0) {
         const rawVersion = workflowRef.slice(at + 1);
-        // Allow either `v3` or `3` formats.
         const vMatch = /^v?(\d+)$/.exec(rawVersion);
         if (vMatch) {
           const version = Number.parseInt(vMatch[1]!, 10);
           const baseId = workflowRef.slice(0, at);
-          resolved = helpers.getWorkflow(baseId, version);
+          workflow = helpers.getWorkflow(baseId, version);
         }
       }
-      if (!resolved) {
-        reply.code(404);
-        return {
-          error: "WORKFLOW_NOT_FOUND",
-          message: `workflowRef "${workflowRef}" not found in this instance's registry`,
-        };
-      }
-      // Continue with the resolved row.
-      return await acceptInvocation(resolved);
     }
-    return await acceptInvocation(wfRow);
+    if (!workflow) {
+      reply.code(404);
+      return {
+        error: "WORKFLOW_NOT_FOUND",
+        message: `workflowRef "${workflowRef}" not found in this instance's registry`,
+      };
+    }
+    return await acceptInvocation(workflow);
 
-    async function acceptInvocation(workflow: NonNullable<typeof wfRow>): Promise<unknown> {
+    async function acceptInvocation(workflow: WorkflowRow): Promise<unknown> {
       // 4. Recompute the workflow content hash and require an exact match.
       //    Pinning is the receiver's defense against a confused caller
       //    ending up at a server with a drifted definition.
@@ -228,23 +222,39 @@ export function registerRemoteRunRoutes(
         };
       }
 
-      // 6. Enqueue a normal run. The existing executor loop picks it up
-      //    and runs it inside the existing per-run subprocess sandbox —
-      //    NO credential elevation, no new code path. Brief decision 2.
+      // 6. Insert a pending run directly. The existing executor loop
+      //    (server.ts startLoop → tick → queue.claim) picks it up and
+      //    runs it inside the existing per-run subprocess sandbox — NO
+      //    credential elevation, no new code path. Brief decision 2.
       //
       //    We tag triggered_by with both `remote` and the caller's pubkey
       //    prefix so audit logs / `chorus run history` show provenance.
+      //    We bypass `RunQueue.enqueue` because its `triggeredBy` field
+      //    is constrained to a fixed union — the worknet tag intentionally
+      //    falls outside that set so audit pipelines can filter remote
+      //    invocations distinct from manual/cron/webhook/event triggers.
+      const remoteRunId = randomUUID();
       const callerTag = `remote:${callerIdentity.publicKey.slice(0, 12)}`;
+      const nowIso = new Date().toISOString();
+      const runRow: RunRow = {
+        id: remoteRunId,
+        workflow_id: workflow.id,
+        workflow_version: workflow.version,
+        status: "pending",
+        triggered_by: callerTag,
+        trigger_payload: callInput === null ? null : JSON.stringify(callInput),
+        priority: 0,
+        next_wakeup: null,
+        visibility_until: null,
+        started_at: nowIso,
+        finished_at: null,
+        error: null,
+        attempt: 1,
+      };
       try {
-        const runId = queue.enqueue(workflow.id, {
-          workflowVersion: workflow.version,
-          triggeredBy: callerTag,
-          triggerPayload: callInput,
-          // ID generated server-side so we can return it before persisting.
-          id: randomUUID(),
-        });
+        helpers.insertRun(runRow);
         reply.code(200);
-        return { remoteRunId: runId };
+        return { remoteRunId };
       } catch (err) {
         reply.code(500);
         return {
