@@ -1,12 +1,16 @@
 import { describe, it, expect } from "vitest";
+import { IntegrationError } from "@delightfulchorus/core";
 import type {
   IntegrationManifest,
   IntegrationModule,
   OperationHandler,
 } from "@delightfulchorus/core";
 import {
+  buildIntegrationBackedPlanner,
   parsePlannerResponseJson,
   planAndExecute,
+  PROVIDER_REGISTRY,
+  renderFlattenedHistory,
   renderSystemPrompt,
   type IntegrationLoader,
   type PlannerLLM,
@@ -589,3 +593,339 @@ describe("planAndExecute — determinism", () => {
     expect(a.usage).toEqual(b.usage);
   });
 });
+
+// ── PROVIDER_REGISTRY shape ─────────────────────────────────────────────────
+
+describe("PROVIDER_REGISTRY", () => {
+  it("declares the three first-party providers with their llm-* integration names", () => {
+    expect(PROVIDER_REGISTRY.anthropic.integration).toBe("llm-anthropic");
+    expect(PROVIDER_REGISTRY.openai.integration).toBe("llm-openai");
+    expect(PROVIDER_REGISTRY.gemini.integration).toBe("llm-gemini");
+  });
+
+  it("each provider declares a default model id (matches the corresponding llm-* integration's DEFAULT_MODEL)", () => {
+    expect(PROVIDER_REGISTRY.anthropic.defaultModel).toBe("claude-sonnet-4-5");
+    expect(PROVIDER_REGISTRY.openai.defaultModel).toBe("gpt-4o-mini");
+    expect(PROVIDER_REGISTRY.gemini.defaultModel).toBe("gemini-2.0-flash-exp");
+  });
+});
+
+// ── renderFlattenedHistory ──────────────────────────────────────────────────
+
+describe("renderFlattenedHistory", () => {
+  it("returns 'Begin.' for an empty history (so the LLM has something to respond to)", () => {
+    expect(renderFlattenedHistory({ history: [] })).toBe("Begin.");
+  });
+
+  it("preserves order and tags each entry by role", () => {
+    const out = renderFlattenedHistory({
+      history: [
+        { role: "user", content: "what's the time" },
+        { role: "assistant", content: "let me check" },
+        { role: "tool", content: "[clock] 3:45pm" },
+      ],
+    });
+    expect(out).toContain("[user] what's the time");
+    expect(out).toContain("[assistant] let me check");
+    expect(out).toContain("[tool-observation] [clock] 3:45pm");
+    // Order preserved.
+    const userIdx = out.indexOf("[user]");
+    const asstIdx = out.indexOf("[assistant]");
+    const toolIdx = out.indexOf("[tool-observation]");
+    expect(userIdx).toBeLessThan(asstIdx);
+    expect(asstIdx).toBeLessThan(toolIdx);
+  });
+});
+
+// ── buildIntegrationBackedPlanner ───────────────────────────────────────────
+
+describe("buildIntegrationBackedPlanner", () => {
+  /**
+   * The default planner: instead of importing @ai-sdk/* directly, it loads
+   * the chosen `llm-*` integration and calls its `generate` op. These tests
+   * exercise that contract: which integration is loaded, what input the
+   * generate op receives, how the response is parsed back into a
+   * PlannerResponse.
+   */
+  it("loads the integration corresponding to the chosen provider", async () => {
+    const loaded: string[] = [];
+    const planner = buildIntegrationBackedPlanner({
+      provider: "anthropic",
+      integrationLoader: async (name) => {
+        loaded.push(name);
+        return makeFakeLlmIntegration("llm-anthropic", "ok");
+      },
+      credentials: { apiKey: "sk-ant-test" },
+    });
+    await planner({
+      model: "claude-sonnet-4-5",
+      systemPrompt: "system",
+      history: [],
+    });
+    expect(loaded).toEqual(["llm-anthropic"]);
+  });
+
+  it("forwards the system prompt and a flattened history to the integration's generate op", async () => {
+    let captured: { prompt?: string; system?: string; model?: string } | undefined;
+    const planner = buildIntegrationBackedPlanner({
+      provider: "openai",
+      integrationLoader: async () => {
+        return {
+          manifest: {
+            name: "llm-openai",
+            version: "0.0.1",
+            description: "stub",
+            authType: "none",
+            credentialTypes: [],
+            operations: [
+              {
+                name: "generate",
+                description: "stub",
+                idempotent: false,
+                inputSchema: { type: "object" },
+                outputSchema: { type: "object" },
+              },
+            ],
+          },
+          operations: {
+            generate: (async (input: unknown) => {
+              captured = input as typeof captured;
+              return {
+                text: JSON.stringify({ thought: "x", finalAnswer: "x" }),
+                usage: { inputTokens: 1, outputTokens: 1 },
+              };
+            }) as OperationHandler,
+          },
+        };
+      },
+      credentials: null,
+    });
+    await planner({
+      model: "gpt-4o",
+      systemPrompt: "you are an agent",
+      history: [
+        { role: "user", content: "hi" },
+        { role: "assistant", content: "hello" },
+      ],
+    });
+    expect(captured?.system).toBe("you are an agent");
+    expect(captured?.model).toBe("gpt-4o");
+    expect(captured?.prompt).toContain("[user] hi");
+    expect(captured?.prompt).toContain("[assistant] hello");
+  });
+
+  it("parses the integration's text response into a PlannerResponse", async () => {
+    const planner = buildIntegrationBackedPlanner({
+      provider: "gemini",
+      integrationLoader: async () => makeFakeLlmIntegration(
+        "llm-gemini",
+        "the answer is 42",
+      ),
+      credentials: { apiKey: "AIzaSy-fake" },
+    });
+    const r = await planner({
+      model: "gemini-2.0-flash-exp",
+      systemPrompt: "system",
+      history: [],
+    });
+    expect(r.finalAnswer).toBe("the answer is 42");
+    expect(r.usage.inputTokens).toBe(1);
+    expect(r.usage.outputTokens).toBe(1);
+  });
+
+  it("throws IntegrationError when the chosen integration has no generate op", async () => {
+    const planner = buildIntegrationBackedPlanner({
+      provider: "anthropic",
+      integrationLoader: async () => ({
+        manifest: {
+          name: "llm-anthropic",
+          version: "0.0.1",
+          description: "broken stub",
+          authType: "none",
+          credentialTypes: [],
+          operations: [],
+        },
+        operations: {}, // no `generate` op
+      }),
+      credentials: { apiKey: "sk-ant-test" },
+    });
+    await expect(
+      planner({
+        model: "claude-sonnet-4-5",
+        systemPrompt: "system",
+        history: [],
+      }),
+    ).rejects.toBeInstanceOf(IntegrationError);
+  });
+
+  it("wraps loader failures into IntegrationError with LLM_INTEGRATION_NOT_FOUND", async () => {
+    const planner = buildIntegrationBackedPlanner({
+      provider: "anthropic",
+      integrationLoader: async () => {
+        throw new Error("module not installed");
+      },
+      credentials: { apiKey: "sk-ant-test" },
+    });
+    await expect(
+      planner({
+        model: "claude-sonnet-4-5",
+        systemPrompt: "system",
+        history: [],
+      }),
+    ).rejects.toMatchObject({ code: "LLM_INTEGRATION_NOT_FOUND" });
+  });
+
+  it("forwards credentials to the integration's generate ctx (for auth)", async () => {
+    let capturedCreds: unknown;
+    const planner = buildIntegrationBackedPlanner({
+      provider: "anthropic",
+      integrationLoader: async () => ({
+        manifest: {
+          name: "llm-anthropic",
+          version: "0.0.1",
+          description: "stub",
+          authType: "apiKey",
+          credentialTypes: [],
+          operations: [
+            {
+              name: "generate",
+              description: "stub",
+              idempotent: false,
+              inputSchema: { type: "object" },
+              outputSchema: { type: "object" },
+            },
+          ],
+        },
+        operations: {
+          generate: (async (_input: unknown, ctx: { credentials?: unknown }) => {
+            capturedCreds = ctx.credentials;
+            return {
+              text: JSON.stringify({ thought: "x", finalAnswer: "x" }),
+              usage: { inputTokens: 1, outputTokens: 1 },
+            };
+          }) as OperationHandler,
+        },
+      }),
+      credentials: { apiKey: "sk-ant-real-key" },
+    });
+    await planner({
+      model: "claude-sonnet-4-5",
+      systemPrompt: "system",
+      history: [],
+    });
+    expect(capturedCreds).toEqual({ apiKey: "sk-ant-real-key" });
+  });
+});
+
+// ── planAndExecute uses the integration-backed planner by default ──────────
+
+describe("planAndExecute — default planner integration path", () => {
+  it("when no plannerLLM override is supplied, uses the chosen provider's llm-* integration", async () => {
+    const loaded: string[] = [];
+    const llmCalls: number[] = [];
+    const integrations: Record<string, IntegrationModule> = {
+      "llm-anthropic": makeFakeLlmIntegration("llm-anthropic", "anthropic-out"),
+      "llm-openai": makeFakeLlmIntegration("llm-openai", "openai-out"),
+    };
+    // Wrap to record which integration's generate gets called.
+    for (const [name, mod] of Object.entries(integrations)) {
+      const orig = mod.operations["generate"]!;
+      mod.operations["generate"] = (async (input: unknown, ctx) => {
+        llmCalls.push(loaded.length);
+        return orig(input, ctx);
+      }) as OperationHandler;
+    }
+    const loader: IntegrationLoader = async (name) => {
+      loaded.push(name);
+      const mod = integrations[name];
+      if (!mod) throw new Error(`unknown integration: ${name}`);
+      return mod;
+    };
+    const step = makeFakeStep();
+
+    const result = await planAndExecute({
+      goal: "easy",
+      maxSteps: 5,
+      provider: "openai",
+      step,
+      integrationLoader: loader,
+      credentials: { apiKey: "sk-test" },
+    });
+
+    expect(result.finalAnswer).toBe("openai-out");
+    expect(loaded).toEqual(["llm-openai"]);
+    expect(llmCalls).toHaveLength(1);
+  });
+
+  it("provider defaults to anthropic when omitted", async () => {
+    const loaded: string[] = [];
+    const loader: IntegrationLoader = async (name) => {
+      loaded.push(name);
+      return makeFakeLlmIntegration(name, "default-out");
+    };
+    const step = makeFakeStep();
+    const result = await planAndExecute({
+      goal: "easy",
+      maxSteps: 5,
+      step,
+      integrationLoader: loader,
+      credentials: { apiKey: "sk-test" },
+    });
+    expect(loaded).toEqual(["llm-anthropic"]);
+    expect(result.finalAnswer).toBe("default-out");
+  });
+
+  it("throws UNKNOWN_PROVIDER for an unrecognized provider value", async () => {
+    const step = makeFakeStep();
+    await expect(
+      planAndExecute({
+        goal: "g",
+        maxSteps: 5,
+        // Bypassing the type system to exercise the runtime guard.
+        provider: "fakevendor" as never,
+        step,
+        integrationLoader: async () => {
+          throw new Error("loader should not be called");
+        },
+        credentials: { apiKey: "x" },
+      }),
+    ).rejects.toMatchObject({ code: "UNKNOWN_PROVIDER" });
+  });
+});
+
+// ── Helper for the new tests ────────────────────────────────────────────────
+
+function makeFakeLlmIntegration(
+  name: string,
+  finalAnswer: string,
+): IntegrationModule {
+  return {
+    manifest: {
+      name,
+      version: "0.0.1",
+      description: `fake ${name}`,
+      authType: "apiKey",
+      credentialTypes: [],
+      operations: [
+        {
+          name: "generate",
+          description: "fake generate",
+          idempotent: false,
+          inputSchema: { type: "object" },
+          outputSchema: { type: "object" },
+        },
+      ],
+    },
+    operations: {
+      generate: (async () => {
+        return {
+          text: JSON.stringify({
+            thought: `from ${name}`,
+            finalAnswer,
+          }),
+          usage: { inputTokens: 1, outputTokens: 1 },
+        };
+      }) as OperationHandler,
+    },
+  };
+}

@@ -912,6 +912,12 @@ export class Executor {
         runWorkflow: SubgraphRunner;
       }).runWorkflow = this.opts.subgraphRunner;
     }
+    // Structural extension — integrations that need to invoke other
+    // integrations (the `agent` integration's tool catalog, for example)
+    // opt-in by reading `ctx.integrationLoader`. Same pattern as ctx.step:
+    // existing handlers ignore the cast; opt-in handlers consume it.
+    (ctx as OperationContext & { integrationLoader: IntegrationLoader }).integrationLoader =
+      this.opts.integrationLoader;
 
     // ── Primary attempt with retry budget ──────────────────────────────
     const primaryResult = await this.tryPrimary(node, triggerPayload, ctx, retryCfg);
@@ -1071,6 +1077,11 @@ export class Executor {
         runWorkflow: SubgraphRunner;
       }).runWorkflow = this.opts.subgraphRunner;
     }
+    // Mirror the integrationLoader attachment — fallbacks should have the
+    // same reach as the primary handler, including agent-style integrations
+    // that need to reach other integrations.
+    (fbCtx as OperationContext & { integrationLoader: IntegrationLoader }).integrationLoader =
+      this.opts.integrationLoader;
     return await handler(input, fbCtx);
   }
 

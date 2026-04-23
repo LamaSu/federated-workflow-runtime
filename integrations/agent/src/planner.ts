@@ -23,6 +23,14 @@
  * we left off," not "reproduce the same answer byte-for-byte." The executor's
  * step.run memoization ensures iterations that already completed return their
  * cached output on replay; only the NEXT iteration re-queries the LLM.
+ *
+ * Pluggable model adapters:
+ *   The default PlannerLLM does NOT import vendor SDKs (@ai-sdk/anthropic etc).
+ *   Instead, it loads the existing `llm-anthropic` / `llm-openai` /
+ *   `llm-gemini` integrations via the supplied `integrationLoader` and calls
+ *   their `generate` operation. This keeps the agent vendor-agnostic — any
+ *   future LLM integration shipped in chorus is automatically available as a
+ *   planner backend, with no agent-package change needed.
  */
 import {
   AuthError,
@@ -31,6 +39,38 @@ import {
   type Logger,
   type OperationContext,
 } from "@delightfulchorus/core";
+
+// ── Provider selection ─────────────────────────────────────────────────────
+
+/**
+ * The vendor families the agent recognizes out of the box. Each maps to one
+ * of the `llm-*` integrations chorus ships. New providers added to chorus
+ * become available automatically — extend this union and the lookup table
+ * below.
+ */
+export type PlannerProvider = "anthropic" | "openai" | "gemini";
+
+/**
+ * Provider → (integration name, default model id). The integration name is
+ * what `integrationLoader(name)` will resolve. The default model id is used
+ * when the caller doesn't specify one.
+ *
+ * Keep model IDs in sync with the corresponding `llm-*` integration's
+ * DEFAULT_MODEL constant — the registry is duplicated rather than imported
+ * to avoid pulling the LLM packages into this one's dependency tree.
+ */
+export const PROVIDER_REGISTRY: Record<
+  PlannerProvider,
+  { integration: string; defaultModel: string }
+> = {
+  anthropic: { integration: "llm-anthropic", defaultModel: "claude-sonnet-4-5" },
+  openai: { integration: "llm-openai", defaultModel: "gpt-4o-mini" },
+  gemini: { integration: "llm-gemini", defaultModel: "gemini-2.0-flash-exp" },
+};
+
+export function isPlannerProvider(value: unknown): value is PlannerProvider {
+  return value === "anthropic" || value === "openai" || value === "gemini";
+}
 
 // ── Public types ────────────────────────────────────────────────────────────
 
@@ -112,20 +152,35 @@ export interface PlanAndExecuteParams {
   goal: string;
   allowedIntegrations?: string[];
   maxSteps: number;
-  model: string;
+  /**
+   * Vendor family ("anthropic" | "openai" | "gemini"). Selects which `llm-*`
+   * integration the default planner loads. Defaults to "anthropic" at the
+   * handler level. Ignored when `plannerLLM` is supplied.
+   */
+  provider?: PlannerProvider;
+  /**
+   * Specific model identifier (e.g. "claude-opus-4-7", "gpt-4o", "gemini-2.0-pro").
+   * If omitted, falls back to the provider's default model. The default
+   * planner forwards this verbatim to the chosen `llm-*` integration's
+   * generate operation.
+   */
+  model?: string;
   userContext?: unknown;
   step: PlannerStepContext;
   integrationLoader: IntegrationLoader;
   /**
-   * Optional override. When absent, a default Anthropic-backed PlannerLLM is
-   * built from `apiKey`.
+   * Optional override. When absent, a default integration-backed PlannerLLM
+   * is built that loads the chosen `llm-*` integration and calls its
+   * `generate` operation. Tests pass a stub PlannerLLM here to bypass the
+   * integration lookup entirely.
    */
   plannerLLM?: PlannerLLM;
   /**
-   * When no plannerLLM is provided, this is the key the default Anthropic
-   * planner will use.
+   * Credentials for the default planner. Forwarded to the loaded `llm-*`
+   * integration as `ctx.credentials` — same shape it expects from the
+   * runtime's credential service ({ apiKey: string } typically).
    */
-  apiKey?: string;
+  credentials?: Record<string, unknown> | null;
   logger?: Logger;
   signal?: AbortSignal;
 }
@@ -151,7 +206,6 @@ export async function planAndExecute(
     goal,
     allowedIntegrations = [],
     maxSteps,
-    model,
     userContext,
     step,
     integrationLoader,
@@ -159,9 +213,29 @@ export async function planAndExecute(
     signal,
   } = params;
 
+  const provider: PlannerProvider = params.provider ?? "anthropic";
+  const providerEntry = PROVIDER_REGISTRY[provider];
+  if (!providerEntry) {
+    throw new IntegrationError({
+      message: `agent: unknown provider "${provider}". Known: ${Object.keys(
+        PROVIDER_REGISTRY,
+      ).join(", ")}.`,
+      integration: "agent",
+      operation: "plan-and-execute",
+      code: "UNKNOWN_PROVIDER",
+    });
+  }
+  // Resolve model: caller's value wins, else the provider's default.
+  const model = params.model ?? providerEntry.defaultModel;
+
   const llm =
     params.plannerLLM ??
-    buildDefaultAnthropicPlanner({ apiKey: params.apiKey });
+    buildIntegrationBackedPlanner({
+      provider,
+      integrationLoader,
+      credentials: params.credentials ?? null,
+      logger,
+    });
 
   // Resolve tool catalog: for each allowed integration, load it and collect
   // its operations. We do this ONCE at the start, not per iteration, so a
@@ -521,82 +595,147 @@ export function renderSystemPrompt(opts: {
   return parts.join("\n");
 }
 
-// ── Default Anthropic PlannerLLM ────────────────────────────────────────────
+// ── Integration-backed default PlannerLLM ───────────────────────────────────
 
 /**
- * Build the default PlannerLLM backed by Vercel AI SDK's Anthropic provider.
- * Separated so tests can bypass it entirely.
+ * Build the default PlannerLLM by routing through the chosen `llm-*`
+ * integration's `generate` operation. This is the vendor-agnostic path:
+ * the agent never imports @ai-sdk/* directly — it loads the LLM integration
+ * by name and calls its handler exactly as the executor would.
  *
- * IMPORTANT: we keep the import of @ai-sdk/anthropic DYNAMIC so that
- * environments that supply their own plannerLLM override don't have to
- * install @ai-sdk/anthropic. Hence the peer-dependency optional flag in
- * package.json.
+ * Benefits over a hardcoded vendor SDK:
+ *   - Same auth / retry / cassette behavior as direct `llm-anthropic` (etc.) calls.
+ *   - Future LLM integrations work without touching the agent package.
+ *   - Tests can short-circuit by stubbing the integrationLoader rather than
+ *     monkey-patching dynamic imports.
+ *
+ * Cost: one extra step.run-equivalent (the `generate` handler call). The
+ * planner's outer step.run ("agent:iter-N") still memoizes the whole
+ * iteration including the LLM call, so durability is unchanged.
+ *
+ * Exported for testing and for advanced users who want to wire a non-default
+ * planner that still routes through chorus integrations.
  */
-function buildDefaultAnthropicPlanner(opts: {
-  apiKey?: string;
+export function buildIntegrationBackedPlanner(opts: {
+  provider: PlannerProvider;
+  integrationLoader: IntegrationLoader;
+  credentials: Record<string, unknown> | null;
+  logger?: Logger;
 }): PlannerLLM {
-  return async ({ model, systemPrompt, history, signal }) => {
-    if (!opts.apiKey) {
-      throw new AuthError({
-        message:
-          "No apiKey supplied to the default Anthropic PlannerLLM — pass a _plannerLLM override or supply ctx.credentials.apiKey.",
-        integration: "agent",
-        operation: "plan-and-execute",
-      });
-    }
+  const { provider, integrationLoader, credentials, logger } = opts;
+  const providerEntry = PROVIDER_REGISTRY[provider];
+  if (!providerEntry) {
+    throw new IntegrationError({
+      message: `agent: unknown provider "${provider}". Known: ${Object.keys(
+        PROVIDER_REGISTRY,
+      ).join(", ")}.`,
+      integration: "agent",
+      operation: "plan-and-execute",
+      code: "UNKNOWN_PROVIDER",
+    });
+  }
 
-    // Dynamic import so this package doesn't fail to load when the optional
-    // @ai-sdk/anthropic peer dep is absent (users with an override).
-    let anthropicMod: typeof import("@ai-sdk/anthropic");
-    let aiMod: typeof import("ai");
+  return async ({ model, systemPrompt, history, signal }) => {
+    // Load the LLM integration. We do this on every call rather than
+    // caching because the loader may resolve to a fresh module instance
+    // (workspace-link reload, etc.); the loader itself is responsible for
+    // any caching it cares about.
+    let llmIntegration: IntegrationModule;
     try {
-      anthropicMod = await import("@ai-sdk/anthropic");
-      aiMod = await import("ai");
+      llmIntegration = await integrationLoader(providerEntry.integration);
     } catch (err) {
       throw new IntegrationError({
-        message: `agent: default Anthropic planner requires @ai-sdk/anthropic and ai packages (install them or supply a _plannerLLM override). Underlying: ${(err as Error).message}`,
+        message: `agent: could not load LLM integration "${providerEntry.integration}" for provider "${provider}". Install @delightfulchorus/integration-${providerEntry.integration} or supply a _plannerLLM override. Underlying: ${(err as Error).message}`,
         integration: "agent",
         operation: "plan-and-execute",
-        code: "MISSING_PEER_DEP",
+        code: "LLM_INTEGRATION_NOT_FOUND",
+      });
+    }
+    const generateOp = llmIntegration.operations["generate"];
+    if (typeof generateOp !== "function") {
+      throw new IntegrationError({
+        message: `agent: integration "${providerEntry.integration}" does not expose a "generate" operation — cannot use it as a planner backend.`,
+        integration: "agent",
+        operation: "plan-and-execute",
+        code: "LLM_INTEGRATION_INCOMPATIBLE",
       });
     }
 
-    const provider = anthropicMod.createAnthropic({ apiKey: opts.apiKey });
-    const languageModel = provider.languageModel(model);
+    // Flatten the conversation into a single prompt the `generate`
+    // operation can consume. The llm-* integrations expose `prompt` +
+    // `system` (no `messages` array — that's a deliberate simplification
+    // in the chorus surface). We flatten the history into a single user
+    // prompt with role-prefixed lines so the LLM still sees the full
+    // back-and-forth context.
+    const flattenedPrompt = renderFlattenedHistory({ history });
 
-    // Flatten the conversation — system + each history entry maps to the
-    // AI SDK's `messages` array with role=system|user|assistant|tool.
-    // We encode tool observations as role=user messages with a prefix,
-    // because the AI SDK v4's `tool` role requires a paired tool_call_id
-    // which we don't track here (the LLM emits names, not IDs).
-    const messages = history.map((h) => {
-      if (h.role === "tool") {
-        return {
-          role: "user" as const,
-          content: `[tool-observation] ${h.content}`,
-        };
-      }
-      return { role: h.role, content: h.content };
-    });
-    if (messages.length === 0) {
-      messages.push({ role: "user" as const, content: "Begin." });
+    const opCtx: OperationContext = {
+      credentials,
+      logger: logger ?? silentLogger(),
+      signal: signal ?? new AbortController().signal,
+    };
+
+    let result: { text?: unknown; usage?: unknown };
+    try {
+      result = (await generateOp(
+        {
+          prompt: flattenedPrompt,
+          system: systemPrompt,
+          model,
+        },
+        opCtx,
+      )) as { text?: unknown; usage?: unknown };
+    } catch (err) {
+      // Re-throw provider-level AuthError / RateLimitError as-is so the
+      // outer wrapLLMError preserves their classification.
+      throw err;
     }
 
-    const { text, usage } = await aiMod.generateText({
-      model: languageModel,
-      system: systemPrompt,
-      messages,
-      abortSignal: signal,
-    });
+    const text = typeof result.text === "string" ? result.text : "";
+    const usageObj = (result.usage ?? {}) as {
+      inputTokens?: unknown;
+      outputTokens?: unknown;
+    };
+    const inputTokens =
+      typeof usageObj.inputTokens === "number" ? usageObj.inputTokens : 0;
+    const outputTokens =
+      typeof usageObj.outputTokens === "number" ? usageObj.outputTokens : 0;
 
     return {
       ...parsePlannerResponseJson(text),
-      usage: {
-        inputTokens: usage.promptTokens,
-        outputTokens: usage.completionTokens,
-      },
+      usage: { inputTokens, outputTokens },
     };
   };
+}
+
+/**
+ * Flatten conversation history into a single prompt string. The llm-*
+ * integrations expose a single `prompt` field (not a messages[] array), so
+ * we encode role + content with separators. The system prompt is passed
+ * separately via the `system` field; this function only handles the
+ * back-and-forth turns.
+ *
+ * Empty history (first turn) returns "Begin." — the model needs SOMETHING
+ * to respond to and the system prompt already carries the goal+tools.
+ *
+ * Exported for testing.
+ */
+export function renderFlattenedHistory(opts: {
+  history: Array<{ role: "user" | "assistant" | "tool"; content: string }>;
+}): string {
+  const { history } = opts;
+  if (history.length === 0) return "Begin.";
+  const lines: string[] = [];
+  for (const h of history) {
+    if (h.role === "tool") {
+      lines.push(`[tool-observation] ${h.content}`);
+    } else if (h.role === "assistant") {
+      lines.push(`[assistant] ${h.content}`);
+    } else {
+      lines.push(`[user] ${h.content}`);
+    }
+  }
+  return lines.join("\n\n");
 }
 
 /**
