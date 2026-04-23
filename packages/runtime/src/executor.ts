@@ -21,6 +21,7 @@ import {
   type AskUserSchema,
 } from "./schema-validate.js";
 import { evalWhen } from "./when-eval.js";
+import { stepRowToPayload, type StreamBus } from "./stream-bus.js";
 
 /**
  * Runtime executor — replay-based durable execution per §4.3.
@@ -86,6 +87,21 @@ export interface ExecutorOptions {
    * shape so cross-package type-checking ride along on duck typing.
    */
   subgraphRunner?: SubgraphRunner;
+  /**
+   * Optional in-memory broadcast bus for the streaming protocol (Wave 4
+   * item 12). When present, the executor:
+   *   - publishes a `values` + `updates` event after every step row write
+   *     (inside the per-run mutex critical section, so subscribers see
+   *     ordering identical to the steps table)
+   *   - publishes `tasks` events at step:start and step:end
+   *   - exposes `ctx.stream.write(chunk)` to handlers, which routes the
+   *     chunk to `messages` subscribers under the current step name
+   *
+   * When omitted, none of the above happens — the streaming protocol is
+   * a pure additive surface; older callers that didn't wire a bus see no
+   * behavior change.
+   */
+  streamBus?: StreamBus;
 }
 
 /**
@@ -192,6 +208,30 @@ class SuspendForEvent extends Error {
     super(`run suspended, waiting for event "${eventType}" in step "${stepName}"`);
     this.name = "SuspendForEvent";
   }
+}
+
+/**
+ * Handler-facing streaming API (Wave 4 item 12).
+ *
+ * Integrations that want to emit token-level streams (LLM token-by-token,
+ * progress chunks, partial output) call `ctx.stream.write(chunk)` from
+ * their handler. The runtime relays the chunk to every subscriber on the
+ * current run that asked for `messages` mode. If no bus is wired, the
+ * stream object is absent from `ctx` entirely — handlers should
+ * defensively check for it.
+ *
+ * Why opt-in (not auto-instrumented): the runtime has no insight into
+ * what counts as a "token" in the underlying integration. An LLM
+ * integration knows its own SDK's stream chunks; a TTS integration knows
+ * audio frame boundaries; a video integration knows keyframes. Forcing a
+ * uniform schema would either be wrong or trivial. Cooperative is correct.
+ *
+ * The chunk type is `unknown` because chorus doesn't dictate shape; common
+ * choices: `string` (plain token), `{ delta: string }` (OpenAI-style),
+ * `{ partial: T }` (structured-output-style).
+ */
+export interface StreamWriter {
+  write(chunk: unknown): void;
 }
 
 /**
@@ -350,6 +390,59 @@ export class Executor {
     // See packages/runtime/src/mutex.ts for the rationale + alternatives.
     const writeMutex = new Mutex();
 
+    // Wave 4 item 12 — broadcast bus is optional. When present, we emit
+    // values/updates/tasks events INSIDE the writeMutex critical section
+    // AFTER each row write. This guarantees subscribers observe the same
+    // ordering the steps table observes (concurrent fanOut children that
+    // race to write are serialized by the mutex, so their bus emits are
+    // serialized too). See stream-bus.ts for the contract.
+    const streamBus = this.opts.streamBus;
+    const publishStep = (
+      mode: "values" | "updates",
+      stepName: string,
+      status: StepRow["status"],
+      output: unknown,
+      error: string | null,
+      startedAt: string | null,
+      finishedAt: string | null,
+      durationMs: number | null,
+    ): void => {
+      if (!streamBus) return;
+      const payload = stepRowToPayload({
+        step_name: stepName,
+        status,
+        attempt: 1,
+        // Round-trip output through JSON only when caller passes the
+        // already-stringified column value (which we do post-write).
+        output: typeof output === "string" ? output : output === undefined || output === null ? null : JSON.stringify(output ?? null),
+        error,
+        duration_ms: durationMs,
+        started_at: startedAt,
+        finished_at: finishedAt,
+      });
+      streamBus.publish({
+        mode,
+        runId,
+        step: payload,
+        ts: this.now().getTime(),
+      });
+    };
+    const publishTask = (
+      phase: "step:start" | "step:end",
+      stepName: string,
+      status?: "success" | "failed",
+    ): void => {
+      if (!streamBus) return;
+      streamBus.publish({
+        mode: "tasks",
+        runId,
+        phase,
+        stepName,
+        status,
+        ts: this.now().getTime(),
+      });
+    };
+
     const makeStepContext = (): StepContext => ({
       run: async <T,>(name: string, fn: () => Promise<T>): Promise<T> => {
         // Phase 1: memoization check + 'running' upsert under the write
@@ -358,6 +451,7 @@ export class Executor {
         // BEFORE the handler awaits so handlers can run in parallel.
         let cachedOutput: string | undefined;
         let startedAt = "";
+        let didInsertRunning = false;
         await writeMutex.withLock(() => {
           if (seenNames.has(name)) {
             logger.warn(`duplicate step name "${name}" in run ${runId} — only first executes`);
@@ -384,10 +478,41 @@ export class Executor {
             finished_at: null,
             duration_ms: null,
           });
+          didInsertRunning = true;
+          // Emit values/updates BEFORE releasing the mutex so any
+          // subscriber is guaranteed to see this row before the next
+          // step.run's row write (ordering invariant).
+          publishStep(
+            "values",
+            name,
+            "running",
+            null,
+            null,
+            startedAt,
+            null,
+            null,
+          );
+          publishStep(
+            "updates",
+            name,
+            "running",
+            null,
+            null,
+            startedAt,
+            null,
+            null,
+          );
         });
 
         if (cachedOutput !== undefined) {
           return JSON.parse(cachedOutput) as T;
+        }
+
+        // Step lifecycle: the handler is about to run. Emit OUTSIDE the
+        // mutex (no row write to serialize against here — tasks events
+        // are pure lifecycle hints).
+        if (didInsertRunning) {
+          publishTask("step:start", name);
         }
 
         // Phase 2: handler runs OUTSIDE the mutex — full parallelism.
@@ -396,20 +521,42 @@ export class Executor {
           // Phase 3: success upsert under the write mutex.
           await writeMutex.withLock(() => {
             const finishedAt = this.now().toISOString();
+            const outputJson = JSON.stringify(out ?? null);
             this.helpers.upsertStep({
               run_id: runId,
               step_name: name,
               attempt: 1,
               status: "success",
               input: null,
-              output: JSON.stringify(out ?? null),
+              output: outputJson,
               error: null,
               error_sig_hash: null,
               started_at: startedAt,
               finished_at: finishedAt,
               duration_ms: Date.parse(finishedAt) - Date.parse(startedAt),
             });
+            publishStep(
+              "values",
+              name,
+              "success",
+              outputJson,
+              null,
+              startedAt,
+              finishedAt,
+              Date.parse(finishedAt) - Date.parse(startedAt),
+            );
+            publishStep(
+              "updates",
+              name,
+              "success",
+              outputJson,
+              null,
+              startedAt,
+              finishedAt,
+              Date.parse(finishedAt) - Date.parse(startedAt),
+            );
           });
+          publishTask("step:end", name, "success");
           return out;
         } catch (err) {
           // SuspendForEvent is not a failure — it's a control signal that
@@ -436,7 +583,28 @@ export class Executor {
               finished_at: finishedAt,
               duration_ms: Date.parse(finishedAt) - Date.parse(startedAt),
             });
+            publishStep(
+              "values",
+              name,
+              "failed",
+              null,
+              e.message,
+              startedAt,
+              finishedAt,
+              Date.parse(finishedAt) - Date.parse(startedAt),
+            );
+            publishStep(
+              "updates",
+              name,
+              "failed",
+              null,
+              e.message,
+              startedAt,
+              finishedAt,
+              Date.parse(finishedAt) - Date.parse(startedAt),
+            );
           });
+          publishTask("step:end", name, "failed");
           throw e;
         }
       },
@@ -744,6 +912,31 @@ export class Executor {
     });
 
     const step: StepContext = makeStepContext();
+
+    // Wave 4 item 12 — runId-bound stream-writer factory. Stored as a
+    // hidden property on the StepContext so invokeNode can attach a
+    // properly-scoped writer to ctx.stream without leaking the bus
+    // surface to handlers. When no bus is wired, the factory returns a
+    // no-op writer (handlers never see ctx.stream because invokeNode
+    // skips the attach when streamBus is falsy — but if a third-party
+    // wrapper invokes via stepCtx.run directly, the no-op keeps things
+    // safe).
+    if (streamBus) {
+      (step as StepContext & {
+        __streamFor: (stepName: string) => StreamWriter;
+      }).__streamFor = (stepName: string) => ({
+        write: (chunk: unknown) => {
+          streamBus.publish({
+            mode: "messages",
+            runId,
+            stepName,
+            chunk,
+            ts: this.now().getTime(),
+          });
+        },
+      });
+    }
+
     const steps: StepRow[] = [];
 
     // Track per-node outputs (keyed by node.id) so `Connection.when?`
@@ -918,6 +1111,21 @@ export class Executor {
     // existing handlers ignore the cast; opt-in handlers consume it.
     (ctx as OperationContext & { integrationLoader: IntegrationLoader }).integrationLoader =
       this.opts.integrationLoader;
+    // Wave 4 item 12 — handler-facing streaming write. The StepContext
+    // (built in run()) carries a `__streamFor(stepName)` factory that
+    // returns a StreamWriter bound to the current runId + the supplied
+    // step name. We pass `node.id` because that's the step.run wrapper
+    // around invokeNode. Existing handlers ignore `ctx.stream`; opt-in
+    // handlers cast and call `ctx.stream.write(chunk)`.
+    if (stepCtx) {
+      const internal = stepCtx as StepContext & {
+        __streamFor?: (stepName: string) => StreamWriter;
+      };
+      if (internal.__streamFor) {
+        (ctx as OperationContext & { stream: StreamWriter }).stream =
+          internal.__streamFor(node.id);
+      }
+    }
 
     // ── Primary attempt with retry budget ──────────────────────────────
     const primaryResult = await this.tryPrimary(node, triggerPayload, ctx, retryCfg);
