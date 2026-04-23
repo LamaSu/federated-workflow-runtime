@@ -75,10 +75,33 @@ export {
   type IntegrationLoader,
   type RetryPolicy,
   type StepContext,
+  type StreamWriter,
   type SubgraphRunner,
   type SubgraphRunResult,
   type WaitForEventResult,
 } from "./executor.js";
+
+// Wave 4 item 12 — streaming protocol surface.
+export {
+  STREAM_MODES,
+  StreamBus,
+  stepRowToPayload,
+  type StreamEvent,
+  type StreamListener,
+  type StreamMode,
+  type StreamMessagesEvent,
+  type StreamTasksEvent,
+  type StreamUpdatesEvent,
+  type StreamValuesEvent,
+  type StepEventPayload,
+  type SubscribeOptions,
+} from "./stream-bus.js";
+
+export {
+  STREAM_HEARTBEAT_MS,
+  registerStreamRoutes,
+  type RegisterStreamRoutesOptions,
+} from "./api/stream.js";
 
 export {
   registerAskRoutes,

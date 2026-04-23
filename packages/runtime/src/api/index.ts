@@ -13,6 +13,8 @@ import { registerEventsRoutes } from "./events.js";
 import { registerOAuthRoutes } from "./oauth.js";
 import { registerCredentialsRoutes } from "./credentials.js";
 import { registerRemoteRunRoutes } from "./remote-run.js";
+import { registerStreamRoutes } from "./stream.js";
+import type { StreamBus } from "../stream-bus.js";
 
 /**
  * Mount the read-only JSON API under /api/*.
@@ -73,6 +75,13 @@ export interface RegisterApiOptions {
     /** Override `now` (test hook). */
     now?: () => number;
   };
+  /**
+   * Wave 4 item 12 — when set, mounts GET /api/run/:runId/stream as an
+   * SSE endpoint backed by the supplied bus. The same bus must be passed
+   * to the Executor's `streamBus` option so events flow end-to-end.
+   * When omitted, the route is not mounted (404 to clients).
+   */
+  streamBus?: StreamBus;
 }
 
 export function registerApiRoutes(
@@ -138,6 +147,14 @@ export function registerApiRoutes(
       timestampSkewMs: opts.remoteCallable.timestampSkewMs,
       now: opts.remoteCallable.now,
     });
+  }
+  // Wave 4 item 12 — opt-in SSE streaming endpoint. Reuses the bearer-
+  // auth onRequest hook above so a tokened deployment still gates this
+  // route (browser EventSource users in localhost mode get unrestricted
+  // access; bearer-mode deployments need a server-side proxy or CLI
+  // client that can set the Authorization header).
+  if (opts.streamBus) {
+    registerStreamRoutes(app, db, { bus: opts.streamBus });
   }
 }
 

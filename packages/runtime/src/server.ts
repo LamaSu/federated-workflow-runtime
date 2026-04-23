@@ -20,6 +20,7 @@ import { registerApiRoutes } from "./api/index.js";
 import { registerAskRoutes } from "./ask-routes.js";
 import type { EventDispatcher } from "./triggers/event.js";
 import { getDashboardHtml, getDashboardEtag } from "./static/holder.js";
+import { StreamBus } from "./stream-bus.js";
 
 /**
  * Fastify server composition per ARCHITECTURE §4.
@@ -224,10 +225,15 @@ export function createServer(opts: CreateServerOptions): ChorusServer {
       throw err;
     }
   };
+  // Wave 4 item 12 — single shared in-process broadcast bus. Executor
+  // publishes to it; the SSE endpoint subscribes. One bus per server so
+  // ordering is consistent across all subscribers.
+  const streamBus = new StreamBus();
   executor = new Executor({
     db,
     integrationLoader: opts.integrationLoader,
     subgraphRunner,
+    streamBus,
   });
   const cronScheduler = new CronScheduler({ queue });
   const webhookRegistry = new WebhookRegistry({ queue });
@@ -257,6 +263,8 @@ export function createServer(opts: CreateServerOptions): ChorusServer {
     // mounts them ONLY when this option is set so `chorus run` (without
     // --remote-callable) leaves no remote-invocation surface exposed.
     remoteCallable: opts.remoteCallable,
+    // Wave 4 item 12 — wire the same bus the executor publishes to.
+    streamBus,
   });
 
   // POST /ask/:runId/:stepName — webhook endpoint for step.askUser answers.
