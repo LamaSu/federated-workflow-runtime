@@ -26,6 +26,13 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import pc from "picocolors";
+import {
+  forkRun,
+  getRunHistory,
+  getRunOverview,
+  openDatabase,
+  parsePath,
+} from "@delightfulchorus/runtime";
 import { loadConfig } from "../config.js";
 
 // ── Public types ─────────────────────────────────────────────────────────────
@@ -84,41 +91,18 @@ export async function resolveDbPath(cwd: string): Promise<string> {
     : path.join(path.dirname(chorusDir), config.database.path);
 }
 
-/**
- * Lazy import of @delightfulchorus/runtime. Throws a clear error if the
- * package is not yet built — same behavior as `chorus run`'s soft import,
- * but here we throw so the caller can return a non-zero exit code rather
- * than silently degrading. forkRun + getRunHistory have no degraded mode.
- */
-async function loadRuntime(): Promise<{
-  openDatabase: typeof import("@delightfulchorus/runtime").openDatabase;
-  forkRun: typeof import("@delightfulchorus/runtime").forkRun;
-  getRunHistory: typeof import("@delightfulchorus/runtime").getRunHistory;
-  getRunOverview: typeof import("@delightfulchorus/runtime").getRunOverview;
-  parsePath: typeof import("@delightfulchorus/runtime").parsePath;
-  ForkRunError: typeof import("@delightfulchorus/runtime").ForkRunError;
-}> {
-  // Use a runtime-computed specifier so tsup's external-marker doesn't try
-  // to inline the runtime package at build time. Same trick as report.ts.
-  const dynamicImport = new Function("s", "return import(s)") as (s: string) => Promise<unknown>;
-  try {
-    const mod = (await dynamicImport("@delightfulchorus/runtime")) as Awaited<
-      ReturnType<typeof loadRuntime>
-    >;
-    if (typeof mod.openDatabase !== "function") {
-      throw new Error(
-        "@delightfulchorus/runtime is installed but does not export openDatabase",
-      );
-    }
-    return mod;
-  } catch (err) {
-    throw new Error(
-      `@delightfulchorus/runtime is not built or installed: ${
-        (err as Error).message
-      }. Run \`npm run build --workspace=@delightfulchorus/runtime\` first.`,
-    );
-  }
-}
+// Static ESM imports above bind us to @delightfulchorus/runtime at module
+// load time. tsup keeps the import external (see packages/cli/package.json
+// build script) so the actual resolution happens when the CLI runs. If the
+// runtime is missing/unbuilt, Node's loader throws on first import — the
+// process never reaches command execution. That's the right behavior for
+// these commands: forkRun and getRunHistory have no degraded mode.
+//
+// (Compare with `chorus run`, which uses tryImportRuntime to soft-fail
+// when the runtime isn't built yet — the user gets a clear "build first"
+// message instead of an opaque ESM resolution error. We could mirror that
+// for history/replay if the developer-experience win matters; for now the
+// CLI is shipped together with the runtime so the soft path is dead code.)
 
 // ── Mutation parsing ────────────────────────────────────────────────────────
 
@@ -197,14 +181,6 @@ export async function runRunHistory(opts: RunHistoryOptions): Promise<number> {
   const writeOut = makeWriter(opts.captureStdout);
   const writeErr = makeErrWriter();
 
-  let runtime: Awaited<ReturnType<typeof loadRuntime>>;
-  try {
-    runtime = await loadRuntime();
-  } catch (err) {
-    writeErr(pc.red(`✗ ${(err as Error).message}\n`));
-    return 2;
-  }
-
   let dbPath: string;
   try {
     dbPath = opts.dbPathOverride ?? (await resolveDbPath(cwd));
@@ -213,14 +189,20 @@ export async function runRunHistory(opts: RunHistoryOptions): Promise<number> {
     return 2;
   }
 
-  const db = runtime.openDatabase(dbPath);
+  let db: ReturnType<typeof openDatabase>;
   try {
-    const overview = runtime.getRunOverview(db, opts.runId);
+    db = openDatabase(dbPath);
+  } catch (err) {
+    writeErr(pc.red(`✗ cannot open database at ${dbPath}: ${(err as Error).message}\n`));
+    return 2;
+  }
+  try {
+    const overview = getRunOverview(db, opts.runId);
     if (!overview) {
       writeErr(pc.red(`✗ unknown run: ${opts.runId}\n`));
       return 1;
     }
-    const history = runtime.getRunHistory(db, opts.runId);
+    const history = getRunHistory(db, opts.runId);
 
     if (opts.json) {
       writeOut(
@@ -319,18 +301,11 @@ export async function runRunReplay(opts: RunReplayOptions): Promise<number> {
     return 1;
   }
 
-  let runtime: Awaited<ReturnType<typeof loadRuntime>>;
-  try {
-    runtime = await loadRuntime();
-  } catch (err) {
-    writeErr(pc.red(`✗ ${(err as Error).message}\n`));
-    return 2;
-  }
-
   // Validate mutation paths against the parser before touching the DB.
+  // parsePath is a pure function that throws ForkRunError on syntax errors.
   for (const p of Object.keys(mutations)) {
     try {
-      runtime.parsePath(p);
+      parsePath(p);
     } catch (err) {
       writeErr(pc.red(`✗ invalid --mutate path "${p}": ${(err as Error).message}\n`));
       return 1;
@@ -345,11 +320,17 @@ export async function runRunReplay(opts: RunReplayOptions): Promise<number> {
     return 2;
   }
 
-  const db = runtime.openDatabase(dbPath);
+  let db: ReturnType<typeof openDatabase>;
+  try {
+    db = openDatabase(dbPath);
+  } catch (err) {
+    writeErr(pc.red(`✗ cannot open database at ${dbPath}: ${(err as Error).message}\n`));
+    return 2;
+  }
   try {
     let result;
     try {
-      result = runtime.forkRun(db, opts.runId, opts.fromStep, mutations);
+      result = forkRun(db, opts.runId, opts.fromStep, mutations);
     } catch (err) {
       // ForkRunError carries a code we can surface to the user.
       const e = err as { code?: string; message: string };
