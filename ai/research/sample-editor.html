@@ -1,0 +1,552 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Chorus editor — Daily Linear bug digest</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/gh/jerosoler/Drawflow/dist/drawflow.min.css"
+  />
+  <style>
+    /* Base layout — three regions: top bar, sidebar, canvas. */
+    :root {
+      --bg: #f5f0e1;
+      --fg: #2a2a2a;
+      --muted: #7a7565;
+      --panel: #ede6d1;
+      --accent: #5c6b3d;
+      --warn: #b57d1d;
+      --err: #8b2f2f;
+      --border: #d8cfb7;
+      --conn: #8a7f62;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      background: var(--bg);
+      color: var(--fg);
+      font: 13px/1.45 ui-monospace, Menlo, Consolas, monospace;
+      display: grid;
+      grid-template-rows: 44px 1fr;
+      grid-template-columns: 240px 1fr;
+      grid-template-areas:
+        "top  top"
+        "side canvas";
+    }
+    header {
+      grid-area: top;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 14px;
+      gap: 12px;
+    }
+    header .title {
+      flex: 1 1 auto;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--fg);
+      outline: none;
+      padding: 4px 6px;
+      border: 1px dashed transparent;
+    }
+    header .title:hover { border-color: var(--border); }
+    header .title[contenteditable="true"]:focus { border-color: var(--accent); background: #fff; }
+    header .meta { color: var(--muted); font-size: 11px; letter-spacing: .04em; }
+    header .dirty { color: var(--warn); font-weight: 700; display: none; }
+    header .dirty.show { display: inline; }
+    header button {
+      background: transparent;
+      color: var(--fg);
+      border: 1px solid var(--border);
+      padding: 5px 10px;
+      cursor: pointer;
+      font: inherit;
+    }
+    header button:hover { background: var(--bg); border-color: var(--accent); }
+    header button.primary { background: var(--accent); color: #f7f5e8; border-color: var(--accent); }
+
+    aside {
+      grid-area: side;
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      padding: 12px;
+      overflow-y: auto;
+    }
+    aside h3 {
+      margin: 0 0 8px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      color: var(--muted);
+    }
+    aside ul { list-style: none; margin: 0 0 16px; padding: 0; }
+    aside li {
+      padding: 6px 8px;
+      margin-bottom: 4px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      cursor: grab;
+      font-size: 12px;
+      user-select: none;
+    }
+    aside li:hover { border-color: var(--accent); }
+    aside li.hint { border: 1px dashed var(--border); color: var(--muted); background: transparent; cursor: default; }
+
+    main {
+      grid-area: canvas;
+      position: relative;
+      overflow: hidden;
+    }
+    #drawflow {
+      position: absolute;
+      inset: 0;
+      background: var(--bg);
+    }
+    /* Subtle grid backdrop so users see they're on a canvas. */
+    #drawflow::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(to right, rgba(122,117,101,0.07) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(122,117,101,0.07) 1px, transparent 1px);
+      background-size: 20px 20px;
+    }
+
+    /* Chorus node styling inside Drawflow. */
+    .drawflow .drawflow-node.chorus-node {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 0;
+      padding: 8px 10px;
+      min-width: 200px;
+      box-shadow: none;
+    }
+    .drawflow .drawflow-node.chorus-node .df-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--accent);
+    }
+    .drawflow .drawflow-node.chorus-node .df-title .df-op {
+      font-weight: 400;
+      color: var(--muted);
+    }
+    .drawflow .drawflow-node.chorus-node .df-id {
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: .04em;
+      margin-bottom: 4px;
+    }
+    .drawflow .drawflow-node.chorus-node .df-field {
+      display: block;
+      margin-top: 4px;
+      font-size: 10px;
+    }
+    .drawflow .drawflow-node.chorus-node .df-field span {
+      display: block;
+      color: var(--muted);
+      margin-bottom: 2px;
+    }
+    .drawflow .drawflow-node.chorus-node .df-field input {
+      width: 100%;
+      padding: 3px 4px;
+      border: 1px solid var(--border);
+      background: #fff;
+      font: inherit;
+    }
+    .drawflow .drawflow-node[data-id="0"],
+    .drawflow .drawflow-node.chorus-meta {
+      display: none !important;
+    }
+    .drawflow .connection .main-path { stroke: var(--conn); stroke-width: 2; }
+
+    /* Banners + dialogs. */
+    .banner {
+      position: absolute;
+      top: 10px; left: 50%;
+      transform: translateX(-50%);
+      background: #fff;
+      border: 1px solid var(--border);
+      padding: 6px 12px;
+      font-size: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.08);
+      display: none;
+      z-index: 50;
+    }
+    .banner.show { display: block; }
+    .banner.err { border-color: var(--err); color: var(--err); }
+    .banner.warn { border-color: var(--warn); color: var(--warn); }
+
+    .when-popover {
+      position: absolute;
+      background: #fff;
+      border: 1px solid var(--border);
+      padding: 8px 10px;
+      font-size: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.1);
+      z-index: 100;
+      min-width: 240px;
+      display: none;
+    }
+    .when-popover.show { display: block; }
+    .when-popover label { display: block; margin-bottom: 6px; color: var(--muted); }
+    .when-popover input { width: 100%; padding: 4px 6px; border: 1px solid var(--border); font: inherit; }
+    .when-popover .actions { margin-top: 6px; display: flex; gap: 6px; justify-content: flex-end; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="title" id="workflow-title" contenteditable="true">Daily Linear bug digest</div>
+    <span class="meta" id="workflow-id">linear-bug-digest</span>
+    <span class="dirty" id="dirty-indicator">* unsaved</span>
+    <button id="btn-load" title="Load from runtime">Load</button>
+    <button id="btn-save" class="primary" title="Save (Ctrl+S)">Save</button>
+    <button id="btn-export" title="Download as Chorus JSON">Export</button>
+  </header>
+  <aside>
+    <h3>Integrations</h3>
+    <ul id="integrations-list">
+      <li draggable="true" data-integration="http-generic" data-operation="request">http-generic<span style="color:var(--muted);font-weight:400">.request</span></li>
+      <li draggable="true" data-integration="slack-send" data-operation="postMessage">slack-send<span style="color:var(--muted);font-weight:400">.postMessage</span></li>
+      <li draggable="true" data-integration="llm-anthropic" data-operation="generate">llm-anthropic<span style="color:var(--muted);font-weight:400">.generate</span></li>
+      <li draggable="true" data-integration="llm-anthropic" data-operation="generateObject">llm-anthropic<span style="color:var(--muted);font-weight:400">.generateObject</span></li>
+      <li draggable="true" data-integration="llm-openai" data-operation="generate">llm-openai<span style="color:var(--muted);font-weight:400">.generate</span></li>
+      <li draggable="true" data-integration="llm-openai" data-operation="generateObject">llm-openai<span style="color:var(--muted);font-weight:400">.generateObject</span></li>
+      <li draggable="true" data-integration="llm-gemini" data-operation="generate">llm-gemini<span style="color:var(--muted);font-weight:400">.generate</span></li>
+      <li draggable="true" data-integration="llm-gemini" data-operation="generateObject">llm-gemini<span style="color:var(--muted);font-weight:400">.generateObject</span></li>
+      <li draggable="true" data-integration="gmail-send" data-operation="sendMessage">gmail-send<span style="color:var(--muted);font-weight:400">.sendMessage</span></li>
+    </ul>
+    <h3>Triggers</h3>
+    <ul>
+      <li draggable="true" data-integration="__trigger" data-operation="manual">manual</li>
+      <li draggable="true" data-integration="__trigger" data-operation="cron">cron</li>
+      <li draggable="true" data-integration="__trigger" data-operation="webhook">webhook</li>
+    </ul>
+    <h3>Style</h3>
+    <ul>
+      <li class="hint">solarpunk terminal, warm green on cream</li>
+    </ul>
+  </aside>
+  <main>
+    <div class="banner" id="banner"></div>
+    <div id="drawflow"></div>
+    <div class="when-popover" id="when-popover">
+      <label for="when-input">when (JEXL expression, blank = always)</label>
+      <input id="when-input" type="text" placeholder="output.severity === 'urgent'">
+      <div class="actions">
+        <button id="when-cancel">Cancel</button>
+        <button id="when-save" class="primary">Save</button>
+      </div>
+    </div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/gh/jerosoler/Drawflow/dist/drawflow.min.js"></script>
+  <script id="workflow-json" type="application/json">{"id":"linear-bug-digest","name":"Daily Linear bug digest","version":1,"active":true,"trigger":{"type":"cron","expression":"0 9 * * *","timezone":"UTC"},"nodes":[{"id":"fetch-issues","integration":"http-generic","operation":"request","config":{"url":"https://api.linear.app/graphql","method":"POST","headers":{"Content-Type":"application/json"},"body":{"query":"query BugIssues { issues(filter: { labels: { name: { eq: \"bug\" } } }, orderBy: createdAt) { nodes { id title url createdAt } } }"}},"onError":"retry"},{"id":"summarize","integration":"llm-anthropic","operation":"generate","config":{"model":"claude-opus-4-7"},"inputs":{"prompt":"Summarize these Linear bug issues in 3 bullets:\n{{fetch-issues.body}}"},"onError":"retry"},{"id":"post","integration":"slack-send","operation":"postMessage","config":{"channel":"#team"},"inputs":{"text":"{{summarize.text}}"},"onError":"retry"}],"connections":[{"from":"fetch-issues","to":"summarize"},{"from":"summarize","to":"post"}],"createdAt":"2026-04-22T09:00:00Z","updatedAt":"2026-04-22T09:00:00Z"}</script>
+  <script>
+    // === Inlined Chorus <-> Drawflow transform =========================
+    
+// Chorus <-> Drawflow transform (inlined for editor HTML).
+// Mirrors packages/cli/src/lib/drawflow-transform.ts — edit both together.
+(function(global){
+  function escapeHtml(s){return String(s).replace(/[<>&"']/g,function(c){return({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;","'":"&#39;"})[c]});}
+  function flattenConfig(cfg){var out={};for(var k in cfg){var v=cfg[k];if(typeof v==="string"||typeof v==="number"||typeof v==="boolean"){out["cfg_"+k]=v;}}return out;}
+  function renderNodeHtml(n){var header='<div class="df-title">'+escapeHtml(n.integration)+'<span class="df-op">.'+escapeHtml(n.operation)+'</span></div>';
+    var subtitle='<div class="df-id">'+escapeHtml(n.id)+'</div>';
+    var body=Object.keys(n.config||{}).filter(function(k){var v=(n.config||{})[k];return typeof v==="string"||typeof v==="number"||typeof v==="boolean";})
+      .map(function(k){var v=(n.config||{})[k];return '<label class="df-field"><span>'+escapeHtml(k)+'</span><input df-cfg_'+escapeHtml(k)+' type="text" value="'+escapeHtml(String(v))+'"></label>';}).join("");
+    return header+subtitle+body;}
+  function classNameFor(i){return "chorus-node chorus-"+String(i).replace(/[^a-z0-9-]/gi,"-");}
+  function computeColumns(wf){var inbound={};wf.nodes.forEach(function(n){inbound[n.id]=[];});wf.connections.forEach(function(c){if(inbound[c.to])inbound[c.to].push(c.from);});
+    var cols={};var remaining=new Set(wf.nodes.map(function(n){return n.id;}));
+    for(var pass=0;pass<wf.nodes.length+1;pass++){var changed=false;Array.from(remaining).forEach(function(id){var parents=inbound[id]||[];var resolved=parents.every(function(p){return cols.hasOwnProperty(p);});
+      if(parents.length===0){if(!cols.hasOwnProperty(id)){cols[id]=0;changed=true;remaining.delete(id);}}
+      else if(resolved){var max=Math.max.apply(null,parents.map(function(p){return cols[p];}));cols[id]=max+1;remaining.delete(id);changed=true;}});
+      if(!changed)break;}
+    remaining.forEach(function(id){cols[id]=0;});return cols;}
+  function chorusToDrawflow(wf){var data={};var idToNumber={};var next=1;
+    wf.nodes.forEach(function(n){idToNumber[n.id]=next;next++;});
+    var cols=computeColumns(wf);var rowByCol={};
+    wf.nodes.forEach(function(n){
+      var num=idToNumber[n.id];var col=cols[n.id]||0;if(rowByCol[col]==null)rowByCol[col]=0;var row=rowByCol[col]++;
+      var extras={chorusNodeId:n.id,integration:n.integration,operation:n.operation,config:n.config||{},inputs:n.inputs,onError:n.onError,retry:n.retry};
+      var flat=flattenConfig(n.config||{});
+      var merged=Object.assign({},extras,flat);
+      data[String(num)]={id:num,name:n.integration+"."+n.operation,data:merged,class:classNameFor(n.integration),html:renderNodeHtml(n),typenode:false,
+        inputs:{input_1:{connections:[]}},outputs:{output_1:{connections:[]}},pos_x:40+col*260,pos_y:40+row*140};
+    });
+    var whenMap={};var counter={};
+    wf.connections.forEach(function(c){var from=idToNumber[c.from];var to=idToNumber[c.to];if(!from||!to)return;
+      data[String(from)].outputs.output_1.connections.push({node:String(to),output:"input_1"});
+      data[String(to)].inputs.input_1.connections.push({node:String(from),input:"output_1"});
+      if(c.when){var key=c.from+"|"+c.to;var idx=counter[key]||0;counter[key]=idx+1;whenMap[c.from+"|"+c.to+"|"+idx]=c.when;}});
+    var meta={chorusMeta:true,workflowId:wf.id,workflowName:wf.name,version:wf.version,active:wf.active,trigger:wf.trigger,createdAt:wf.createdAt,updatedAt:wf.updatedAt,whenMap:whenMap};
+    data["0"]={id:0,name:"chorus-meta",data:meta,class:"chorus-meta",html:"",typenode:"hidden",inputs:{},outputs:{},pos_x:-9999,pos_y:-9999};
+    return {drawflow:{Home:{data:data}}};}
+  function drawflowToChorus(graph,base){var data=(graph&&graph.drawflow&&graph.drawflow.Home&&graph.drawflow.Home.data)||{};
+    var meta=null;Object.keys(data).forEach(function(k){if(data[k].data&&data[k].data.chorusMeta){meta=data[k].data;}});
+    var nodes=[];var numToId={};
+    Object.keys(data).forEach(function(num){var node=data[num];if(node.data&&node.data.chorusMeta)return;
+      var ex=node.data||{};var chorusId=ex.chorusNodeId||"node-"+num;numToId[num]=chorusId;
+      var config=Object.assign({},ex.config||{});Object.keys(ex).forEach(function(k){if(k.indexOf("cfg_")===0){config[k.slice(4)]=ex[k];}});
+      var integration=ex.integration;var operation=ex.operation;
+      if((!integration||!operation)&&typeof node.name==="string"&&node.name.indexOf(".")>=0){var dot=node.name.indexOf(".");integration=integration||node.name.slice(0,dot);operation=operation||node.name.slice(dot+1);}
+      var out={id:chorusId,integration:integration||"http-generic",operation:operation||"request",config:config,onError:ex.onError||"retry"};
+      if(ex.inputs&&Object.keys(ex.inputs).length>0)out.inputs=ex.inputs;
+      if(ex.retry)out.retry=ex.retry;
+      nodes.push(out);});
+    var connections=[];var counter={};
+    Object.keys(data).forEach(function(num){var node=data[num];if(node.data&&node.data.chorusMeta)return;
+      var fromId=numToId[num];if(!fromId)return;
+      var outputs=node.outputs||{};Object.keys(outputs).forEach(function(port){(outputs[port].connections||[]).forEach(function(conn){
+        var toId=numToId[conn.node];if(!toId)return;
+        var edge={from:fromId,to:toId};var key=fromId+"|"+toId;var idx=counter[key]||0;counter[key]=idx+1;
+        var whenKey=fromId+"|"+toId+"|"+idx;if(meta&&meta.whenMap&&meta.whenMap[whenKey])edge.when=meta.whenMap[whenKey];
+        connections.push(edge);});});});
+    return {id:(meta&&meta.workflowId)||base.id,name:(meta&&meta.workflowName)||base.name,version:(meta&&meta.version)||base.version,
+      active:meta?meta.active:base.active,trigger:(meta&&meta.trigger)||base.trigger,nodes:nodes,connections:connections,
+      createdAt:(meta&&meta.createdAt)||base.createdAt,updatedAt:new Date().toISOString()};}
+  global.chorusTransform={chorusToDrawflow:chorusToDrawflow,drawflowToChorus:drawflowToChorus};
+})(typeof window!=="undefined"?window:globalThis);
+
+    // === End transform ================================================
+
+    // --------------------------------------------------------------
+    // Boot the Drawflow editor and wire Chorus import/export round-trip.
+    // --------------------------------------------------------------
+    var API_BASE = "http://127.0.0.1:3710";
+    var initialWorkflow = JSON.parse(
+      document.getElementById("workflow-json").textContent
+    );
+    var baseWorkflow = JSON.parse(
+      JSON.stringify(initialWorkflow) /* deep copy so exports don't mutate */
+    );
+    var dirty = false;
+
+    var container = document.getElementById("drawflow");
+    var editor = new Drawflow(container);
+    editor.reroute = true;
+    editor.start();
+
+    function importWorkflow(wf){
+      var graph = window.chorusTransform.chorusToDrawflow(wf);
+      editor.import(graph);
+      baseWorkflow = JSON.parse(JSON.stringify(wf));
+      setDirty(false);
+    }
+    importWorkflow(initialWorkflow);
+
+    function setDirty(v){
+      dirty = !!v;
+      document.getElementById("dirty-indicator").classList.toggle("show", dirty);
+    }
+    function showBanner(msg, kind){
+      var b = document.getElementById("banner");
+      b.textContent = msg;
+      b.className = "banner show " + (kind || "");
+      if (kind !== "err") setTimeout(function(){ b.classList.remove("show"); }, 4000);
+    }
+
+    // --------------------------------------------------------------
+    // Sidebar: drag integration name onto canvas => addNode.
+    // --------------------------------------------------------------
+    var nextDragIntegration = null;
+    var nextDragOperation = null;
+    document.querySelectorAll("aside li[draggable]").forEach(function(li){
+      li.addEventListener("dragstart", function(e){
+        nextDragIntegration = li.getAttribute("data-integration");
+        nextDragOperation = li.getAttribute("data-operation") || "request";
+        e.dataTransfer.setData("text/plain", nextDragIntegration + "." + nextDragOperation);
+      });
+    });
+    container.addEventListener("dragover", function(e){ e.preventDefault(); });
+    container.addEventListener("drop", function(e){
+      e.preventDefault();
+      if (!nextDragIntegration) return;
+      if (nextDragIntegration === "__trigger") {
+        // Triggers are workflow-level, not canvas nodes. Update meta instead.
+        var meta = editor.drawflow.drawflow.Home.data["0"];
+        if (meta && meta.data) {
+          var t = { type: nextDragOperation };
+          if (nextDragOperation === "cron") t.expression = "0 9 * * *", t.timezone = "UTC";
+          if (nextDragOperation === "webhook") t.path = "/hooks/new", t.method = "POST";
+          meta.data.trigger = t;
+          showBanner("Trigger updated: " + nextDragOperation, "warn");
+          setDirty(true);
+        }
+        return;
+      }
+      var rect = container.getBoundingClientRect();
+      var x = e.clientX - rect.left - editor.canvas_x;
+      var y = e.clientY - rect.top - editor.canvas_y;
+      var name = nextDragIntegration + "." + nextDragOperation;
+      var nid = "node-" + Date.now().toString(36);
+      var html = '<div class="df-title">' + escapeHtml(nextDragIntegration) +
+        '<span class="df-op">.' + escapeHtml(nextDragOperation) + '</span></div>' +
+        '<div class="df-id">' + escapeHtml(nid) + '</div>';
+      editor.addNode(
+        name,
+        1 /* inputs */, 1 /* outputs */,
+        x, y,
+        "chorus-node chorus-" + nextDragIntegration.replace(/[^a-z0-9-]/gi, "-"),
+        { chorusNodeId: nid, integration: nextDragIntegration, operation: nextDragOperation, config: {}, onError: "retry" },
+        html
+      );
+      setDirty(true);
+    });
+
+    function escapeHtml(s){
+      return String(s).replace(/[<>&"']/g, function(c){
+        return ({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;","'":"&#39;"})[c];
+      });
+    }
+
+    // --------------------------------------------------------------
+    // Dirty tracking + keyboard shortcuts.
+    // --------------------------------------------------------------
+    ["nodeCreated","nodeRemoved","connectionCreated","connectionRemoved","nodeDataChanged","nodeMoved"].forEach(function(evt){
+      editor.on(evt, function(){ setDirty(true); });
+    });
+    window.addEventListener("keydown", function(e){
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+        e.preventDefault();
+        saveWorkflow();
+      }
+      if (e.key === "Delete" || e.key === "Backspace") {
+        var sel = editor.node_selected;
+        if (sel && document.activeElement.tagName !== "INPUT" && document.activeElement.contentEditable !== "true") {
+          editor.removeNodeId(sel.id);
+          setDirty(true);
+        }
+      }
+    });
+
+    // --------------------------------------------------------------
+    // Export + Save + Load.
+    // --------------------------------------------------------------
+    function exportChorus(){
+      // Apply the live title edit back into the working base before export.
+      baseWorkflow.name = document.getElementById("workflow-title").textContent.trim() || baseWorkflow.name;
+      var graph = editor.export();
+      return window.chorusTransform.drawflowToChorus(graph, baseWorkflow);
+    }
+
+    document.getElementById("btn-export").addEventListener("click", function(){
+      var wf = exportChorus();
+      var blob = new Blob([JSON.stringify(wf, null, 2)], { type: "application/json" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = wf.id + ".chorus.json";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    });
+
+    function saveWorkflow(){
+      var wf = exportChorus();
+      fetch(API_BASE + "/api/workflows/" + encodeURIComponent(wf.id), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(wf)
+      }).then(function(r){
+        if (r.ok) {
+          setDirty(false);
+          showBanner("Saved to runtime", "");
+          return;
+        }
+        if (r.status === 404 || r.status === 405) {
+          return copyToClipboardFallback(wf);
+        }
+        return r.text().then(function(t){ throw new Error(t); });
+      }).catch(function(err){
+        copyToClipboardFallback(wf);
+      });
+    }
+    document.getElementById("btn-save").addEventListener("click", saveWorkflow);
+
+    function copyToClipboardFallback(wf){
+      var text = JSON.stringify(wf, null, 2);
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function(){
+          showBanner("Runtime is read-only. Copied Chorus JSON to clipboard.", "warn");
+        }, function(){ showBanner("Runtime is read-only. Use Export to download.", "warn"); });
+      } else {
+        showBanner("Runtime is read-only. Use Export to download.", "warn");
+      }
+    }
+
+    document.getElementById("btn-load").addEventListener("click", function(){
+      if (dirty && !confirm("Unsaved changes will be lost. Reload from runtime?")) return;
+      var id = document.getElementById("workflow-id").textContent.trim() || initialWorkflow.id;
+      fetch(API_BASE + "/api/workflows/" + encodeURIComponent(id))
+        .then(function(r){ if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+        .then(function(body){
+          var wf = body.workflow || body; // manifest vs detail shape
+          var def = wf.definition || wf;
+          importWorkflow(def);
+          showBanner("Loaded workflow " + id, "");
+        })
+        .catch(function(err){
+          showBanner("Offline — drag integrations from the sidebar to build a new workflow.", "warn");
+        });
+    });
+
+    // --------------------------------------------------------------
+    // Edge `when` popover: click a connection path to edit.
+    // --------------------------------------------------------------
+    var selectedConnection = null;
+    editor.on("connectionSelected", function(conn){
+      selectedConnection = conn;
+      var pop = document.getElementById("when-popover");
+      var graph = editor.export();
+      var meta = graph.drawflow.Home.data["0"];
+      var whenMap = (meta && meta.data && meta.data.whenMap) || {};
+      var fromId = extractChorusId(graph, conn.output_id);
+      var toId = extractChorusId(graph, conn.input_id);
+      var key = fromId + "|" + toId + "|0";
+      document.getElementById("when-input").value = whenMap[key] || "";
+      pop.style.left = "120px";
+      pop.style.top = "80px";
+      pop.classList.add("show");
+    });
+    function extractChorusId(graph, numId){
+      var n = graph.drawflow.Home.data[String(numId)];
+      return (n && n.data && n.data.chorusNodeId) || String(numId);
+    }
+    document.getElementById("when-cancel").addEventListener("click", function(){
+      document.getElementById("when-popover").classList.remove("show");
+      selectedConnection = null;
+    });
+    document.getElementById("when-save").addEventListener("click", function(){
+      if (!selectedConnection) return;
+      var graph = editor.export();
+      var meta = graph.drawflow.Home.data["0"];
+      if (meta && meta.data) {
+        if (!meta.data.whenMap) meta.data.whenMap = {};
+        var fromId = extractChorusId(graph, selectedConnection.output_id);
+        var toId = extractChorusId(graph, selectedConnection.input_id);
+        var key = fromId + "|" + toId + "|0";
+        var val = document.getElementById("when-input").value.trim();
+        if (val) meta.data.whenMap[key] = val;
+        else delete meta.data.whenMap[key];
+        // Drawflow doesn't expose a setter for data; mutate the meta node in
+        // place via the editor's internal drawflow model.
+        editor.drawflow.drawflow.Home.data["0"].data.whenMap = meta.data.whenMap;
+        setDirty(true);
+      }
+      document.getElementById("when-popover").classList.remove("show");
+      selectedConnection = null;
+    });
+
+    // --------------------------------------------------------------
+    // Live title edit: mark dirty when the user types.
+    // --------------------------------------------------------------
+    document.getElementById("workflow-title").addEventListener("input", function(){ setDirty(true); });
+  </script>
+</body>
+</html>

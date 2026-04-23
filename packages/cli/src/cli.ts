@@ -133,7 +133,7 @@ export function buildProgram(): Command {
     .description(
       "generate a dashboard with your agent (prints API URL + prompt template)",
     )
-    .option("--prompt", "print only the prompt template (pipe-friendly)")
+    .option("--prompt [tweak]", "print only the prompt template (pipe-friendly); with --editor this is an NL tweak")
     .option("--example", "write examples/ui/minimal.html into the cwd")
     .option("--serve", "serve the minimal reference HTML on port 3711")
     .option(
@@ -142,15 +142,41 @@ export function buildProgram(): Command {
       (v) => Number.parseInt(v, 10),
       3711,
     )
-    .action(async (opts: { prompt?: boolean; example?: boolean; serve?: boolean; port?: number }) => {
-      const code = await runUi({
-        prompt: opts.prompt,
-        example: opts.example,
-        serve: opts.serve,
-        servePort: opts.port,
-      });
-      process.exit(code);
-    });
+    .option("--editor", "emit a standalone Drawflow-based workflow editor (requires --workflow)")
+    .option("--workflow <id-or-path>", "workflow id, chorus/<id>.ts, .json path, or http URL (for --editor)")
+    .option("--style <desc>", "aesthetic description substituted into the generated editor (e.g. 'solarpunk')")
+    .option("--out <path>", "override the output file path (default: ./editor-<slug>.html)")
+    .action(
+      async (opts: {
+        prompt?: boolean | string;
+        example?: boolean;
+        serve?: boolean;
+        port?: number;
+        editor?: boolean;
+        workflow?: string;
+        style?: string;
+        out?: string;
+      }) => {
+        // `--prompt` is a flag (true/undefined) by default for the dashboard
+        // path, but accepts a value when paired with --editor (the NL tweak).
+        const promptFlag = opts.prompt === true || opts.prompt === "";
+        const promptValue = typeof opts.prompt === "string" && opts.prompt.length > 0
+          ? opts.prompt
+          : undefined;
+        const code = await runUi({
+          prompt: opts.editor ? false : promptFlag,
+          example: opts.example,
+          serve: opts.serve,
+          servePort: opts.port,
+          editor: opts.editor,
+          editorWorkflow: opts.workflow,
+          editorStyle: opts.style,
+          editorPrompt: opts.editor ? promptValue : undefined,
+          editorOut: opts.out,
+        });
+        process.exit(code);
+      },
+    );
 
   // ── compose ───────────────────────────────────────────────────────────────
   program
