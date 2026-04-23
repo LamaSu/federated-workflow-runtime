@@ -455,9 +455,11 @@ Inngest-style. The runtime exports a `step` object to every action:
 
 ```typescript
 // Available inside any Action via ctx.step
-ctx.step.run(name, fn)           // memoize by name; exec once, replay after
-ctx.step.sleep(name, duration)   // non-compute wait; scheduler resumes
-ctx.step.waitForEvent(name, opts) // pause on internal event (v1.1)
+ctx.step.run(name, fn)              // memoize by name; exec once, replay after
+ctx.step.sleep(name, duration)      // non-compute wait; scheduler resumes
+ctx.step.waitForEvent(name, opts)   // pause on internal event (v1.1)
+ctx.step.memory.get(key)            // per-workflow/user durable KV read
+ctx.step.memory.set(key, value)     // per-workflow/user durable KV write
 ```
 
 **How replay works:**
@@ -474,6 +476,25 @@ catches this, updates `runs.nextWakeup = now + duration`, and exits the subproce
 When `nextWakeup <= now` the executor re-claims the run and re-invokes the function.
 All previously completed steps memoize; the sleep step sees its wakeup-time has passed
 and returns.
+
+**`Connection.when?` conditional routing:** Every connection may carry an
+optional `when?` expression (jexl, sandboxed). Before the executor runs a
+target node, each incoming edge's `when?` is evaluated against the source
+node's output — `{ result, input, nodeId }`. Missing/empty `when?` means
+"always take the edge"; a parse or runtime error on `when?` is treated as
+false (fail-closed: the edge is skipped, a warning is logged, the run
+continues). A node with no active incoming edges is skipped entirely.
+Workflows with zero connections declared retain the pre-`when?` linear
+execution behavior.
+
+**`step.memory`:** Per-workflow (optionally per-user) durable KV store.
+Scope key is `(workflow_id, user_id?)`; `user_id` is derived from
+`triggerPayload.userId` (or `triggerPayload.user.id`). When absent,
+scope is workflow-global. Reads and writes are routed through
+`step.run(...)` so a crash mid-write re-executes idempotently on replay.
+Values are JSON-serialized; re-hydrate rich types (`Date`, `Map`, …)
+yourself after `get`. Memory is *not* per-run — it persists across runs
+of the same workflow, which is the whole point.
 
 **Determinism constraint:** step names MUST be unique within a run. Best practice:
 literal strings, not template-interpolated. The runtime logs a warning if it sees
@@ -623,6 +644,18 @@ CREATE TABLE IF NOT EXISTS events (
   created_at TEXT NOT NULL
 );
 CREATE INDEX idx_events_name ON events(name, created_at);
+
+-- Memory (per-workflow / per-user KV — backs StepContext.memory)
+CREATE TABLE IF NOT EXISTS memory (
+  workflow_id TEXT NOT NULL,
+  user_id     TEXT,
+  key         TEXT NOT NULL,
+  value_json  TEXT NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX idx_memory_pk
+  ON memory(workflow_id, COALESCE(user_id, ''), key);
+CREATE INDEX idx_memory_workflow ON memory(workflow_id);
 ```
 
 ### 4.6 Credential storage
