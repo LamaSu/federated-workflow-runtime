@@ -1,11 +1,12 @@
+import { randomUUID } from "node:crypto";
 import Fastify, {
   type FastifyInstance,
   type FastifyRequest,
   type FastifyReply,
 } from "fastify";
-import type { IntegrationLoader } from "./executor.js";
+import type { IntegrationLoader, SubgraphRunner } from "./executor.js";
 import type { ManifestLookup, RefreshFn } from "./oauth.js";
-import { openDatabase, QueryHelpers, type DatabaseType } from "./db.js";
+import { openDatabase, QueryHelpers, type DatabaseType, type RunRow } from "./db.js";
 import { loadKeyFromEnv } from "./credentials.js";
 import { RunQueue } from "./queue.js";
 import { Executor } from "./executor.js";
@@ -95,7 +96,113 @@ export function createServer(opts: CreateServerOptions): ChorusServer {
   const db = openDatabase(opts.dbPath);
   const helpers = new QueryHelpers(db);
   const queue = new RunQueue(db);
-  const executor = new Executor({ db, integrationLoader: opts.integrationLoader });
+  // Default subgraphRunner — wired so `integration: "workflow"` nodes
+  // resolve a child workflow + execute it inline against the SAME
+  // Executor instance. We close over `executor` (declared just below); the
+  // closure isn't invoked until a node actually calls `ctx.runWorkflow`,
+  // by which time `executor` is assigned.
+  //
+  // Why inline (not enqueue): we want the child to run synchronously from
+  // the parent's POV so the parent's `step.run` for the subgraph node
+  // wraps the entire child execution in ONE memoized step. If we enqueued
+  // and waited, we'd have to either poll the queue (ugly) or hand off to
+  // the dispatcher (which would steal CPU from the parent and break the
+  // memoization invariant — the child run could span multiple ticks).
+  //
+  // We DO write a `runs` row for the child so it shows up in the runs
+  // table for attribution and `chorus run history <child-runId>` works.
+  // The child's row is set to status='running' on creation, then to
+  // 'success'/'failed'/'waiting' after executor.run returns.
+  let executor: Executor;
+  const subgraphRunner: SubgraphRunner = async (
+    workflowId,
+    triggerPayload,
+    options,
+  ) => {
+    const wfRow = helpers.getWorkflow(workflowId, options?.version);
+    if (!wfRow) {
+      const versionLabel = options?.version !== undefined ? `@${options.version}` : "";
+      throw new Error(
+        `subgraph: workflow "${workflowId}${versionLabel}" not found in workflows table`,
+      );
+    }
+    const childRunId = randomUUID();
+    const nowIso = new Date().toISOString();
+    const childRow: RunRow = {
+      id: childRunId,
+      workflow_id: wfRow.id,
+      workflow_version: wfRow.version,
+      status: "running",
+      triggered_by: "subgraph",
+      trigger_payload:
+        triggerPayload === undefined ? null : JSON.stringify(triggerPayload),
+      priority: 0,
+      next_wakeup: null,
+      visibility_until: null,
+      started_at: nowIso,
+      finished_at: null,
+      error: null,
+      attempt: 1,
+    };
+    helpers.insertRun(childRow);
+
+    try {
+      const childWorkflow = JSON.parse(wfRow.definition);
+      const result = await executor.run(childWorkflow, childRunId, triggerPayload);
+
+      const finishedAt = new Date().toISOString();
+      // Update the runs row based on the child's terminal status.
+      if (result.status === "success") {
+        db.prepare(
+          `UPDATE runs SET status = 'success', finished_at = ? WHERE id = ?`,
+        ).run(finishedAt, childRunId);
+        // Terminal output = last step's output. The executor's result.steps
+        // is in declaration order; use the last entry's parsed output. If
+        // there are no steps (an empty-nodes workflow), output is null.
+        const lastStep = result.steps[result.steps.length - 1];
+        const output =
+          lastStep && lastStep.output ? safeParseJson(lastStep.output) : null;
+        return { runId: childRunId, output };
+      } else if (result.status === "waiting") {
+        // The child parked on a waiting_steps row (e.g. it asked the user
+        // a question). MVP behavior: surface as an error to the parent
+        // because we don't yet support the parent suspending on a child's
+        // wait. A future iteration could propagate the suspend through the
+        // subgraph node so the parent ALSO parks; for now, fail fast.
+        db.prepare(
+          `UPDATE runs SET status = 'waiting', finished_at = ?, error = ? WHERE id = ?`,
+        ).run(
+          finishedAt,
+          `child run parked on event "${result.waitingOn?.eventType ?? "unknown"}"`,
+          childRunId,
+        );
+        throw new Error(
+          `subgraph: child "${workflowId}" suspended on event "${result.waitingOn?.eventType ?? "unknown"}" (subgraph-from-event suspension not supported in MVP)`,
+        );
+      } else {
+        db.prepare(
+          `UPDATE runs SET status = 'failed', finished_at = ?, error = ? WHERE id = ?`,
+        ).run(finishedAt, result.error ?? "unknown failure", childRunId);
+        throw new Error(
+          `subgraph: child "${workflowId}" failed: ${result.error ?? "unknown"}`,
+        );
+      }
+    } catch (err) {
+      // Defensive: even if executor.run threw before terminating, mark
+      // the child run as failed so it doesn't sit in 'running' forever.
+      // The thrown error is re-raised so the parent step.run records it.
+      const finishedAt = new Date().toISOString();
+      db.prepare(
+        `UPDATE runs SET status = 'failed', finished_at = ?, error = ? WHERE id = ? AND status = 'running'`,
+      ).run(finishedAt, (err as Error).message, childRunId);
+      throw err;
+    }
+  };
+  executor = new Executor({
+    db,
+    integrationLoader: opts.integrationLoader,
+    subgraphRunner,
+  });
   const cronScheduler = new CronScheduler({ queue });
   const webhookRegistry = new WebhookRegistry({ queue });
   const manualTrigger = new ManualTrigger(queue);
@@ -314,4 +421,16 @@ export function createServer(opts: CreateServerOptions): ChorusServer {
     startLoop,
     close,
   };
+}
+
+/**
+ * Defensive JSON parse — used by the subgraph runner to surface a child's
+ * terminal output. A corrupted column shouldn't crash the parent run.
+ */
+function safeParseJson(s: string): unknown {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
 }

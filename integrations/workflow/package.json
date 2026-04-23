@@ -1,25 +1,23 @@
 {
-  "name": "@delightfulchorus/runtime",
+  "name": "@delightfulchorus/integration-workflow",
   "version": "0.1.9",
-  "description": "Workflow execution engine: cron, webhooks, retries, SQLite state",
+  "description": "Subgraph composition — invoke another local Chorus workflow as a single memoized step. Recursive: child workflows can themselves contain subgraph nodes.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
     "dist",
-    "src/sandbox-worker.cjs",
     "README.md"
   ],
   "keywords": [
     "chorus",
+    "chorus-integration",
     "workflow",
-    "runtime",
-    "automation",
-    "cron",
-    "webhooks",
-    "sqlite",
-    "fastify",
-    "agent",
+    "subgraph",
+    "composition",
+    "supervisor",
+    "hierarchical",
+    "integration",
     "n8n-alternative"
   ],
   "author": "Chorus contributors",
@@ -27,7 +25,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/LamaSu/federated-workflow-runtime.git",
-    "directory": "packages/runtime"
+    "directory": "integrations/workflow"
   },
   "bugs": {
     "url": "https://github.com/LamaSu/federated-workflow-runtime/issues"
@@ -39,23 +37,15 @@
     "provenance": true
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts --clean && node -e \"require('fs').copyFileSync('src/sandbox-worker.cjs', 'dist/sandbox-worker.cjs')\"",
+    "build": "tsup src/index.ts --format esm --dts --clean",
     "test": "vitest run",
-    "dev": "tsx watch src/server.ts",
     "prepublishOnly": "npm run build && npm test"
   },
   "dependencies": {
     "@delightfulchorus/core": "*",
-    "better-sqlite3": "^11.3.0",
-    "cron-parser": "^4.9.0",
-    "fastify": "^5.0.0",
-    "jexl": "^2.3.0",
-    "yaml": "^2.4.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {
-    "@delightfulchorus/integration-workflow": "*",
-    "@types/better-sqlite3": "^7.6.11",
-    "tsx": "^4.19.0"
+    "@delightfulchorus/fbp": "*"
   }
 }

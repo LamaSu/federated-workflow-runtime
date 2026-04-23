@@ -70,6 +70,50 @@ export interface ExecutorOptions {
    * server wiring; executor.ts does not read the crypto key directly.
    */
   credentialsFor?: (integration: string) => Record<string, unknown> | null;
+  /**
+   * Subgraph runner — used by `integration: "workflow"` nodes to invoke
+   * other local workflows as a single memoized step. Optional; if omitted,
+   * any node that calls `ctx.runWorkflow` will get a wiring-bug error from
+   * the integration. The server.ts default implementation looks up the
+   * child workflow in the runtime's DB, mints a fresh runId, and calls
+   * `executor.run(...)` synchronously — same DB, same dispatch loop, same
+   * Executor instance (which means recursive subgraphs work for free
+   * because runWorkflow propagates through the recursion).
+   *
+   * The shape mirrors `@delightfulchorus/integration-workflow`'s
+   * `SubgraphRunner` type. We don't import from the integration package
+   * here (would cause a cyclic dep); we redeclare the same structural
+   * shape so cross-package type-checking ride along on duck typing.
+   */
+  subgraphRunner?: SubgraphRunner;
+}
+
+/**
+ * Spawn + await a child workflow run. See ExecutorOptions.subgraphRunner.
+ *
+ * Contract:
+ *   - `workflowId` resolves via the same workflows-table lookup the
+ *     dispatcher's `tick()` uses.
+ *   - `triggerPayload` becomes the child's trigger payload verbatim.
+ *   - `options.version` (optional) pins the lookup to a specific version;
+ *     omit to use the latest version (max(version) for the id).
+ *   - Returns `{ runId, output }` where `output` is the child's terminal
+ *     output (the output of its last node, or null if the child has no
+ *     nodes).
+ *   - On failure: throws. The integration handler wraps the throw in an
+ *     IntegrationError so failure flows through the existing retry path.
+ */
+export interface SubgraphRunner {
+  (
+    workflowId: string,
+    triggerPayload: unknown,
+    options?: { version?: number },
+  ): Promise<SubgraphRunResult>;
+}
+
+export interface SubgraphRunResult {
+  runId: string;
+  output: unknown;
 }
 
 export interface ExecutorResult {
@@ -848,6 +892,26 @@ export class Executor {
       // opt-in read ctx.step from a cast.
       (ctx as OperationContext & { step: StepContext }).step = stepCtx;
     }
+    // Attach the node's static `config` so handlers (e.g. workflow.invoke)
+    // can read configuration that wasn't intended to flow through the
+    // dataflow-style `inputs` channel. Existing handlers ignore this; new
+    // handlers cast and read ctx.nodeConfig as needed.
+    if (node.config && Object.keys(node.config).length > 0) {
+      (ctx as OperationContext & {
+        nodeConfig: Record<string, unknown>;
+      }).nodeConfig = node.config;
+    }
+    // Attach the subgraph runner if the runtime supplied one. The
+    // `integration: "workflow"` handler depends on this; everything else
+    // ignores it. We attach the SAME function reference at every level of
+    // recursion — the server.ts default implementation calls back into
+    // executor.run, which calls invokeNode, which attaches runWorkflow
+    // again. That's how nested subgraphs propagate without extra wiring.
+    if (this.opts.subgraphRunner) {
+      (ctx as OperationContext & {
+        runWorkflow: SubgraphRunner;
+      }).runWorkflow = this.opts.subgraphRunner;
+    }
 
     // ── Primary attempt with retry budget ──────────────────────────────
     const primaryResult = await this.tryPrimary(node, triggerPayload, ctx, retryCfg);
@@ -988,6 +1052,24 @@ export class Executor {
     const stepProp = (primaryCtx as OperationContext & { step?: StepContext }).step;
     if (stepProp) {
       (fbCtx as OperationContext & { step: StepContext }).step = stepProp;
+    }
+    // Carry over nodeConfig + runWorkflow if the primary's ctx had them, so
+    // a fallback that's `integration: "workflow"` (or any handler that
+    // opts into config) still works. Fallback uses the PRIMARY node's
+    // config — the fallback NodeRef itself doesn't have its own config
+    // slot today.
+    const cfgProp = (primaryCtx as OperationContext & {
+      nodeConfig?: Record<string, unknown>;
+    }).nodeConfig;
+    if (cfgProp) {
+      (fbCtx as OperationContext & {
+        nodeConfig: Record<string, unknown>;
+      }).nodeConfig = cfgProp;
+    }
+    if (this.opts.subgraphRunner) {
+      (fbCtx as OperationContext & {
+        runWorkflow: SubgraphRunner;
+      }).runWorkflow = this.opts.subgraphRunner;
     }
     return await handler(input, fbCtx);
   }
