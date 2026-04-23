@@ -18,18 +18,30 @@
  *     `step.run("agent:iter-N:tool", fn)` steps.
  *   - No module-level or in-process state — the planner takes every handle
  *     it needs at construction time; state lives in the executor's steps table.
+ *   - The whole `plan-and-execute` invocation is ONE outer step row from the
+ *     workflow's point of view — replay of a completed agent step returns
+ *     the cached final answer without any LLM call.
  *
- * Scope (MVP):
- *   - Single planner/LLM provider (Anthropic via Vercel AI SDK) — matches the
- *     llm-anthropic integration the runtime already ships.
- *   - Tool allowlist is a list of integration-operation pairs; the loader
- *     resolves them at runtime via `ctx.integrationLoader`.
+ * Pluggable model adapters:
+ *   - `config.provider` selects the vendor family ("anthropic" | "openai" |
+ *     "gemini"). The default planner loads the corresponding `llm-*`
+ *     integration via `ctx.integrationLoader` and calls its `generate`
+ *     operation — never imports vendor SDKs directly. This keeps the agent
+ *     vendor-agnostic and gives it free reuse of the LLM integrations'
+ *     auth/retry/cassette machinery.
+ *   - `config.model` overrides the model id within the chosen vendor.
+ *   - `_plannerLLM` (test/advanced hook) bypasses the integration entirely.
+ *
+ * Tool catalog:
+ *   - Tool allowlist is a list of integration NAMES (e.g. ["slack-send",
+ *     "linear"]). For each allowed integration, every operation in its
+ *     manifest becomes an addressable tool ("<integration>.<operation>").
  *   - No MCP tool discovery yet (roadmap item #1, separate work).
  *
  * Chorus contract notes:
- *   - Missing apiKey → AuthError (non-retryable).
+ *   - Missing credentials AND no _plannerLLM override → AuthError (non-retryable).
  *   - Missing integrationLoader in ctx → IntegrationError (this is a wiring
- *     bug, not a user error).
+ *     bug, not a user error). The runtime executor attaches it to ctx.
  *   - A tool failure propagates as IntegrationError with the underlying
  *     provider error preserved — the agent can observe and recover on the
  *     next iteration, OR fail the whole node if it was the final attempt.
@@ -45,8 +57,10 @@ import {
 import { z } from "zod";
 import {
   planAndExecute,
+  PROVIDER_REGISTRY,
   type IntegrationLoader,
   type PlannerLLM,
+  type PlannerProvider,
   type PlannerStepContext,
   type StepTrace,
 } from "./planner.js";
@@ -56,19 +70,82 @@ import {
 /**
  * Input to the `plan-and-execute` operation.
  *
- * `allowedIntegrations` omitted → the LLM is given no tools and must answer
- * from its own knowledge in one step (useful for pure-reasoning goals).
- * Supply an array of integration names (e.g. ["linear", "slack-send"]) to
- * whitelist tool access; the planner then surfaces each allowed integration's
- * operations to the LLM as tools it may call.
+ * Tool allowlist:
+ *   `allowedIntegrations` (canonical) and `allowedTools` (alias) both accept
+ *   an array of integration names (e.g. ["linear", "slack-send"]). When both
+ *   are supplied the union is used. Omitted (or empty) → the LLM is given
+ *   no tools and must answer from its own knowledge in one step (useful for
+ *   pure-reasoning goals).
+ *
+ * Provider selection:
+ *   `provider` selects the vendor family ("anthropic" | "openai" | "gemini").
+ *   The default planner loads `@delightfulchorus/integration-llm-<provider>`
+ *   via the runtime's integrationLoader and calls its `generate` operation.
+ *
+ * Model override:
+ *   `model` is the specific model identifier (e.g. "claude-opus-4-7",
+ *   "gpt-4o", "gemini-2.0-pro"). When omitted, falls back to the chosen
+ *   provider's default model (kept in sync with each `llm-*` integration's
+ *   DEFAULT_MODEL constant).
+ *
+ * Iteration budget:
+ *   `maxSteps` (alias `maxIterations`) caps planner iterations. Default 5.
  */
-export const PlanAndExecuteInputSchema = z.object({
-  goal: z.string().min(1),
-  allowedIntegrations: z.array(z.string()).optional(),
-  maxSteps: z.number().int().positive().max(50).optional(),
-  model: z.string().optional(),
-  context: z.unknown().optional(),
-});
+export const PlanAndExecuteInputSchema = z
+  .object({
+    goal: z.string().min(1),
+    allowedIntegrations: z.array(z.string()).optional(),
+    /** Alias for `allowedIntegrations`. Brief uses "allowedTools" terminology. */
+    allowedTools: z.array(z.string()).optional(),
+    maxSteps: z.number().int().positive().max(50).optional(),
+    /** Alias for `maxSteps` — brief calls it `maxIterations`. */
+    maxIterations: z.number().int().positive().max(50).optional(),
+    /**
+     * Vendor family. One of "anthropic" | "openai" | "gemini". Defaults to
+     * "anthropic". The default planner loads `llm-<provider>` via the
+     * runtime's integrationLoader.
+     */
+    provider: z.enum(["anthropic", "openai", "gemini"]).optional(),
+    /**
+     * Specific model id within the chosen provider. Optional — falls back
+     * to the provider's default model.
+     */
+    model: z.string().optional(),
+    context: z.unknown().optional(),
+  })
+  .transform((value) => {
+    // Reconcile aliases. Union allowedIntegrations + allowedTools (both
+    // optional, both contribute to the same list) and prefer maxIterations
+    // over maxSteps when both are present (brief language wins).
+    const allowed = uniqueStrings([
+      ...(value.allowedIntegrations ?? []),
+      ...(value.allowedTools ?? []),
+    ]);
+    const maxSteps =
+      value.maxIterations !== undefined
+        ? value.maxIterations
+        : value.maxSteps;
+    return {
+      goal: value.goal,
+      allowedIntegrations: allowed.length > 0 ? allowed : undefined,
+      maxSteps,
+      provider: value.provider,
+      model: value.model,
+      context: value.context,
+    };
+  });
+
+function uniqueStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const v of values) {
+    if (!seen.has(v)) {
+      seen.add(v);
+      out.push(v);
+    }
+  }
+  return out;
+}
 
 export const PlanAndExecuteOutputSchema = z.object({
   finalAnswer: z.string(),
@@ -88,23 +165,44 @@ export const PlanAndExecuteOutputSchema = z.object({
   success: z.boolean(),
 });
 
-export type PlanAndExecuteInput = z.infer<typeof PlanAndExecuteInputSchema>;
+/**
+ * Public input type — accepts either canonical names
+ * (`allowedIntegrations`, `maxSteps`) or aliases from the brief
+ * (`allowedTools`, `maxIterations`). The Zod schema's transform reconciles
+ * them inside `planAndExecuteOp`.
+ */
+export interface PlanAndExecuteInput {
+  goal: string;
+  allowedIntegrations?: string[];
+  allowedTools?: string[];
+  maxSteps?: number;
+  maxIterations?: number;
+  provider?: PlannerProvider;
+  model?: string;
+  context?: unknown;
+}
 export type PlanAndExecuteOutput = z.infer<typeof PlanAndExecuteOutputSchema>;
 
 // ── Manifest ────────────────────────────────────────────────────────────────
 
 /**
- * Default model. Kept in sync with the llm-anthropic integration's default.
- * Override per call via the `model` input field.
+ * Default provider. When none is supplied via input config, the agent
+ * loads the `llm-anthropic` integration. Override per call via the
+ * `provider` input field.
  */
-const DEFAULT_MODEL = "claude-sonnet-4-5";
-const DEFAULT_MAX_STEPS = 10;
+const DEFAULT_PROVIDER: PlannerProvider = "anthropic";
+/**
+ * Default iteration budget. Aligned with the brief (section 9, "maxIterations
+ * default 5"). The Ralph loop stops whichever comes first: finalAnswer OR
+ * maxSteps.
+ */
+const DEFAULT_MAX_STEPS = 5;
 
 export const manifest: IntegrationManifest = {
   name: "agent",
-  version: "0.1.9",
+  version: "0.2.0",
   description:
-    "Plan-and-execute agent step — an LLM decides which chorus integrations to call to accomplish a goal, iterating until done or maxSteps is hit. Durable: each iteration wrapped in step.run for replay on process restarts.",
+    "Plan-and-execute agent step — an LLM decides which chorus integrations to call to accomplish a goal, iterating until done or maxIterations is hit. Pluggable provider (anthropic / openai / gemini) routes through the corresponding llm-* integration. Durable: each iteration wrapped in step.run for replay on process restarts.",
   authType: "apiKey",
   baseUrl: "https://api.anthropic.com",
   docsUrl: "https://docs.anthropic.com/en/api/getting-started",
@@ -114,7 +212,7 @@ export const manifest: IntegrationManifest = {
       displayName: "Agent LLM API Key",
       authType: "apiKey",
       description:
-        "API key for the LLM that drives the agent's planning loop. Defaults to Anthropic; other providers can be wired by supplying a custom PlannerLLM implementation at the runtime level.",
+        "API key for the LLM that drives the agent's planning loop. The credential is forwarded verbatim to whichever llm-* integration the chosen provider resolves to (llm-anthropic, llm-openai, llm-gemini), so the same { apiKey: \"...\" } shape works for every supported provider. Tool calls do NOT inherit this credential — each tool uses its own.",
       documentationUrl: "https://console.anthropic.com/settings/keys",
       fields: [
         {
@@ -123,15 +221,15 @@ export const manifest: IntegrationManifest = {
           type: "password",
           required: true,
           description:
-            "Anthropic API key (starts with sk-ant-). The agent uses this key for every planning iteration; tool calls DO NOT inherit this key — each tool uses its own credential.",
+            "API key for the chosen LLM provider. For provider='anthropic', use sk-ant-... (https://console.anthropic.com/settings/keys). For provider='openai', use sk-... (https://platform.openai.com/api-keys). For provider='gemini', use a Google AI Studio key (https://aistudio.google.com/app/apikey).",
           deepLink: "https://console.anthropic.com/settings/keys",
-          pattern: "^sk-ant-",
+          // No pattern: each provider has a different prefix; we accept all.
           oauthManaged: false,
         },
       ],
       test: {
         description:
-          "Validates the key by running the planner for 0 steps (just checks auth).",
+          "Validates the key by checking it's present (full round-trip via the chosen llm-* integration is available via that integration's testCredential).",
       },
     },
   ],
@@ -155,19 +253,38 @@ export const manifest: IntegrationManifest = {
             type: "array",
             items: { type: "string" },
             description:
-              "Whitelist of integration names the agent may call. Omitted → no tools (pure reasoning).",
+              "Whitelist of integration names the agent may call (canonical name). Omitted → no tools (pure reasoning).",
+          },
+          allowedTools: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Alias for allowedIntegrations (brief uses 'tools' terminology). When both are supplied the union is used.",
           },
           maxSteps: {
             type: "number",
             minimum: 1,
             maximum: 50,
             description:
-              "Upper bound on planner iterations. The loop exits early when the LLM says DONE. Default 10.",
+              "Upper bound on planner iterations. The loop exits early when the LLM says DONE. Default 5.",
+          },
+          maxIterations: {
+            type: "number",
+            minimum: 1,
+            maximum: 50,
+            description:
+              "Alias for maxSteps. When both are supplied, maxIterations wins.",
+          },
+          provider: {
+            type: "string",
+            enum: ["anthropic", "openai", "gemini"],
+            description:
+              "Vendor family. Selects which llm-* integration the default planner loads. Default: 'anthropic'.",
           },
           model: {
             type: "string",
             description:
-              "Override the LLM model (e.g. claude-opus-4-7). Default claude-sonnet-4-5.",
+              "Specific model id within the chosen provider (e.g. 'claude-opus-4-7', 'gpt-4o', 'gemini-2.0-pro'). Optional — falls back to the provider's default model.",
           },
           context: {
             description:
@@ -306,22 +423,32 @@ export const planAndExecuteOp: OperationHandler<
   if (!plannerOverride && !apiKey) {
     throw new AuthError({
       message:
-        "agent.plan-and-execute requires an apiKey in ctx.credentials (or a _plannerLLM override). The agent drives planning with the LLM specified via credentials; see integration manifest.",
+        "agent.plan-and-execute requires an apiKey in ctx.credentials (or a _plannerLLM override). The agent forwards the credential to the chosen llm-* integration's generate operation.",
       integration: "agent",
       operation: "plan-and-execute",
     });
   }
 
+  const provider: PlannerProvider = parsed.provider ?? DEFAULT_PROVIDER;
+  // Resolve the model id we'll log, mirroring the planner's resolution logic.
+  // The planner does this internally too — we duplicate here only for the
+  // cassette record (so the snapshot reflects the final model used, not
+  // "undefined").
+  const resolvedModel =
+    parsed.model ?? PROVIDER_REGISTRY[provider]?.defaultModel ?? "(unknown)";
+  const resolvedMaxSteps = parsed.maxSteps ?? DEFAULT_MAX_STEPS;
+
   const result = await planAndExecute({
     goal: parsed.goal,
     allowedIntegrations: parsed.allowedIntegrations,
-    maxSteps: parsed.maxSteps ?? DEFAULT_MAX_STEPS,
-    model: parsed.model ?? DEFAULT_MODEL,
+    maxSteps: resolvedMaxSteps,
+    provider,
+    model: parsed.model,
     userContext: parsed.context,
     step,
     integrationLoader,
     plannerLLM: plannerOverride,
-    apiKey,
+    credentials: ctx.credentials,
     logger: ctx.logger,
     signal: ctx.signal,
   });
@@ -332,8 +459,9 @@ export const planAndExecuteOp: OperationHandler<
       goal: parsed.goal,
       goalLength: parsed.goal.length,
       allowedIntegrations: parsed.allowedIntegrations ?? [],
-      maxSteps: parsed.maxSteps ?? DEFAULT_MAX_STEPS,
-      model: parsed.model ?? DEFAULT_MODEL,
+      maxSteps: resolvedMaxSteps,
+      provider,
+      model: resolvedModel,
     },
     {
       success: result.success,
@@ -349,11 +477,14 @@ export const planAndExecuteOp: OperationHandler<
 // ── testCredential ──────────────────────────────────────────────────────────
 
 /**
- * Credential test — the agent's credential is an LLM API key. We delegate
- * validation conceptually to the underlying provider but avoid actually
- * spinning up a planner run (that would burn tokens). Instead we check the
- * key's shape. The runtime can additionally hop via the llm-anthropic
- * integration's testCredential for a real round-trip when configured.
+ * Credential test — the agent's credential is an LLM API key forwarded to
+ * whichever llm-* integration the chosen provider resolves to. Each provider
+ * has a different prefix (sk-ant-..., sk-..., AIzaSy...), so the agent's
+ * test-credential is shape-only: presence + non-empty.
+ *
+ * For a real round-trip to a specific provider, callers should test the
+ * underlying llm-* integration's credential directly — that's the layer
+ * which knows the provider's expected key shape and validation endpoint.
  */
 export async function testCredential(
   _credentialTypeName: string,
@@ -375,12 +506,14 @@ export async function testCredential(
       errorCode: "AUTH_INVALID",
     };
   }
-  if (!/^sk-ant-/.test(apiKey)) {
+  if (apiKey.length < 8) {
+    // Heuristic: every supported provider's API key is at least 8 chars.
+    // Catches obvious typos without prejudging the provider.
     return {
       ok: false,
       latencyMs: Date.now() - startedAt,
       error:
-        "agent.testCredential: apiKey does not match expected Anthropic prefix (sk-ant-). Use the llm-anthropic integration's test for a real round-trip.",
+        "agent.testCredential: apiKey looks too short to be a real key. For a real round-trip, test the underlying llm-* integration's credential.",
       errorCode: "AUTH_INVALID",
     };
   }
@@ -406,8 +539,11 @@ export default integration;
 // Re-export the planner so advanced users can drive it directly.
 export {
   planAndExecute,
+  buildIntegrationBackedPlanner,
+  PROVIDER_REGISTRY,
   type IntegrationLoader,
   type PlannerLLM,
+  type PlannerProvider,
   type PlannerStepContext,
   type StepTrace,
 };
