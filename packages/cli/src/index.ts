@@ -38,6 +38,14 @@ export {
 } from "./commands/validate.js";
 
 export {
+  runSkill,
+  generateSkill,
+  renderSkill,
+  type SkillOptions,
+  type SkillResult,
+} from "./commands/skill.js";
+
+export {
   runCompose,
   composeCommand,
   ComposeFailedError,

@@ -25,6 +25,7 @@ import { runRun } from "./commands/run.js";
 import { runRunHistory, runRunReplay } from "./commands/run-history.js";
 import { runReport } from "./commands/report.js";
 import { runValidate } from "./commands/validate.js";
+import { runSkill } from "./commands/skill.js";
 import { runUi } from "./commands/ui.js";
 import { composeCommand } from "./commands/compose.js";
 import {
@@ -290,6 +291,40 @@ export function buildProgram(): Command {
       const code = await runValidate(files, opts);
       process.exit(code);
     });
+
+  // ── skill ─────────────────────────────────────────────────────────────────
+  program
+    .command("skill <workflow-file>")
+    .description("convert a workflow into a Claude Code skill (SKILL.md)")
+    .option("--out <dir>", "output directory (default ./.claude/skills)")
+    .option("--global", "write to ~/.claude/skills instead of ./.claude/skills")
+    .option("--name <name>", "override skill name (default chorus-<slug>)")
+    .option("--stdout", "print SKILL.md to stdout, don't write a file")
+    .option("--force", "overwrite existing SKILL.md")
+    .option("--json", "output JSON")
+    .action(
+      async (
+        workflowFile: string,
+        opts: {
+          out?: string;
+          global?: boolean;
+          name?: string;
+          stdout?: boolean;
+          force?: boolean;
+          json?: boolean;
+        },
+      ) => {
+        const code = await runSkill(workflowFile, {
+          outDir: opts.out,
+          global: opts.global,
+          name: opts.name,
+          stdout: opts.stdout,
+          force: opts.force,
+          json: opts.json,
+        });
+        process.exit(code);
+      },
+    );
 
   // ── patch ─────────────────────────────────────────────────────────────────
   const patch = program

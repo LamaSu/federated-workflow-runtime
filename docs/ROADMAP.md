@@ -351,23 +351,41 @@ Low. Design space is narrow — Inngest, Trigger.dev, n8n, Temporal all have the
 
 ---
 
-## 7. UI — reframed (we are not building a dashboard)
+## 7. UI — agent-built primary, drag-drop optional (revised 2026-04-23)
 
-**Priority: 6.** Last because the answer is "the user's agent builds the UI, not us."
+**Priority: 6.** The default UI is still "your agent builds it." But the hard-ban on drag-drop is lifted — community-contributable canvases are welcome as long as they sit on top of the JSON API, not inside the core.
 
 ### The reframe
 
 User's exact words: *"we want the UI to be dynamic and built by the users agent, perhaps asking them how they want to see it and for any style they want things."*
 
-This is not "defer the UI." It's *the concept of a fixed UI is obsolete*. Chorus is backend infrastructure for the agent era. Agents are the front-end. The `ARCHITECTURE.md` §1.4 stance "CLI ships first, UI later" becomes "CLI ships first; JSON API ships alongside; agents generate the UI." Hardcoded dashboard is **permanently struck from the roadmap**.
+That stance holds for the **first-party experience**. Chorus is backend infrastructure; agents are the default front-end; the JSON API is the contract. A hardcoded first-party dashboard is still off the roadmap.
 
-### What was deferred (the old plan)
+What changed (2026-04-23): *drag-drop is back on the table as an optional community layer.* The old framing — "drag-drop is permanently struck" — overreached. It was right that Chorus core shouldn't ship a canvas, but wrong that no canvas should ever exist. Users who want to build or install one now have a clean seam to do it.
 
-The original roadmap had a drag-drop visual flow builder at `ARCHITECTURE.md` §11.3 (v2). Dead:
+### What "community drag-drop" looks like (the new lane)
 
-1. **Agents don't need drag-drop.** An agent generates a workflow from a prompt. Drag-drop is UX for humans who can't program; in the agent era, the human describes intent, the agent writes `chorus/` TypeScript.
-2. **Hardcoded dashboards are outdated by definition.** A 2026 dashboard doesn't fit a 2027 user who wants cost-per-run, latency-per-integration, patch-adoption metrics. Their agent builds exactly what they want on demand.
-3. **Every dashboard we ship is one we maintain** — routes, components, ARIA, dark mode, i18n. Sibling agent `ui-kilo` is building the JSON API that any dashboard could use. That's our layer.
+Anyone can ship a drag-drop canvas as a plugin or standalone repo, *on top of* the JSON API + OpenAPI spec. Rules:
+
+1. **Never in `@delightfulchorus/*` core.** Canvas lives in its own repo (e.g. `@community/chorus-canvas`). Chorus core stays backend-only.
+2. **Output is workflow-as-code.** A canvas must emit a valid `chorus/workflows/*.ts` (or round-tripped FBP text). No canvas-proprietary run format. Users own portable source; the canvas is one of several authoring surfaces (NL → `chorus compose`, hand-written TS, future visual editor, etc.).
+3. **Round-trip or bust.** If a canvas imports a workflow, edits it, and re-emits, diffs must stay minimal. No lossy "regenerate from scratch" reimport.
+4. **Registry metadata.** Canvases list in the patch/plugin registry under category `authoring-tool` so users find them without us blessing one.
+
+### What *is* still permanently killed
+
+1. **First-party drag-drop canvas in `@delightfulchorus/*`.** Core stays unopinionated. The canvas is a community layer, not a core feature.
+2. **Hardcoded first-party dashboard.** Agents + JSON API stay the default; reference dashboard (Extension A) is the only first-party HTML we'd ship, and only if triggered.
+3. **Workflow-as-code as the source of truth.** Canvases serialize to TS/FBP; TS/FBP never becomes a projection of canvas state. The text is canonical.
+
+### Why the reversal
+
+The old three-point ban mixed two things that should've been separate:
+
+- *"Agents don't need drag-drop"* — still true for the agent-native path.
+- *"Therefore no one gets drag-drop"* — overreach. Humans co-authoring with agents, or reviewing an agent-generated flow, often want a visual read. A community-contributable canvas that reads/writes the canonical TS is additive, not corrosive, to the thesis.
+
+The workflow-as-code thesis survives as long as rule #2 holds. The ban was defending the thesis; it didn't need to forbid the UI.
 
 ### What ships instead
 
@@ -527,7 +545,7 @@ None are hard cutoffs; they're smoke signals. **Hard cutoff: multi-node → Post
 Things that could plausibly appear but are deliberately not here:
 
 1. **Hosted Chorus cloud** — inherited from §1.4. Self-host only. Public patch registry is the only centralized piece.
-2. **Drag-drop visual workflow builder** — killed per §7. Agents generate flows from prompts.
+2. **First-party drag-drop canvas inside `@delightfulchorus/*` core** — still killed per §7. Community-built canvases that read/write canonical workflow-as-code are allowed and encouraged as external plugins; Chorus core stays backend-only.
 3. **Turing-complete flow expression language** — Windmill's JSONnet, Zapier's Code — no. Flows stay declarative. `ARCHITECTURE.md` §11.4.
 4. **Self-hosted LLMs for repair agent** — Claude stays hardcoded. Revisit only on major pricing shift or genuinely comparable local model.
 5. **Cryptographic PGP Web of Trust** — scout-bravo concluded OIDC + reputation is sufficient. PGP is UX-toxic.
