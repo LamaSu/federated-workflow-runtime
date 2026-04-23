@@ -1,0 +1,50 @@
+{
+  "name": "@delightfulchorus/integration-llm-gemini",
+  "version": "0.1.9",
+  "description": "LLM integration — text completion + structured output via Google Gemini (Vercel AI SDK).",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "chorus",
+    "chorus-integration",
+    "workflow",
+    "llm",
+    "google",
+    "gemini",
+    "ai-sdk",
+    "integration",
+    "n8n-alternative"
+  ],
+  "author": "Chorus contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LamaSu/federated-workflow-runtime.git",
+    "directory": "integrations/llm-gemini"
+  },
+  "bugs": {
+    "url": "https://github.com/LamaSu/federated-workflow-runtime/issues"
+  },
+  "homepage": "https://github.com/LamaSu/federated-workflow-runtime#readme",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "dependencies": {
+    "@ai-sdk/google": "^1.0.0",
+    "@delightfulchorus/core": "*",
+    "ai": "^4.0.0",
+    "zod": "^3.23.0"
+  }
+}
