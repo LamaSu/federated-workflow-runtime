@@ -7,6 +7,7 @@ import type {
   ErrorSignatureSchema,
   IntegrationManifestSchema,
   ManualTriggerSchema,
+  NodeRefSchema,
   NodeResultSchema,
   NodeSchema,
   OperationDefinitionSchema,
@@ -24,6 +25,7 @@ export type WebhookTrigger = z.infer<typeof WebhookTriggerSchema>;
 export type ManualTrigger = z.infer<typeof ManualTriggerSchema>;
 export type Trigger = z.infer<typeof TriggerSchema>;
 export type Node = z.infer<typeof NodeSchema>;
+export type NodeRef = z.infer<typeof NodeRefSchema>;
 export type Connection = z.infer<typeof ConnectionSchema>;
 export type Workflow = z.infer<typeof WorkflowSchema>;
 export type NodeResult = z.infer<typeof NodeResultSchema>;

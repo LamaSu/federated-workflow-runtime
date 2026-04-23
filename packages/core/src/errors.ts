@@ -65,6 +65,47 @@ export class SchemaDriftError extends ChorusError {
   }
 }
 
+/**
+ * Thrown by the executor when a Node's primary `(integration, operation)`
+ * exhausts its retry budget AND every declared fallback also fails. The
+ * `originalCause` carries the primary failure (the most informative for
+ * debugging) and `fallbackAttempts` records each attempted alternate plus
+ * its error message.
+ *
+ * Surfaced as the run's failure cause so a caller debugging a failed run
+ * sees exactly which alternates were tried and why each one failed.
+ */
+export class FallbacksExhaustedError extends ChorusError {
+  readonly fallbackAttempts: Array<{
+    integration: string;
+    operation: string;
+    error: string;
+  }>;
+
+  constructor(opts: {
+    message: string;
+    integration?: string;
+    operation?: string;
+    cause?: unknown;
+    fallbackAttempts: Array<{
+      integration: string;
+      operation: string;
+      error: string;
+    }>;
+  }) {
+    super({
+      code: "FALLBACKS_EXHAUSTED",
+      message: opts.message,
+      retryable: false,
+      integration: opts.integration,
+      operation: opts.operation,
+      cause: opts.cause,
+    });
+    this.name = "FallbacksExhaustedError";
+    this.fallbackAttempts = opts.fallbackAttempts;
+  }
+}
+
 export function isRetryable(err: unknown): boolean {
   if (err instanceof ChorusError) return err.retryable;
   if (err instanceof Error && /ECONN|ETIMEDOUT|ENOTFOUND|socket hang up/.test(err.message)) return true;
