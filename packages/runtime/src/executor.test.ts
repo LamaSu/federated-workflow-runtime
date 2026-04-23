@@ -5,6 +5,7 @@ import type {
   OperationContext,
   Workflow,
 } from "@delightfulchorus/core";
+import { FallbacksExhaustedError } from "@delightfulchorus/core";
 import { openDatabase } from "./db.js";
 import { RunQueue } from "./queue.js";
 import { Executor, type IntegrationLoader } from "./executor.js";
@@ -1372,6 +1373,651 @@ describe("Executor — step.memory (durable per-workflow KV)", () => {
     const res = await exec.run(reader, r2, {}); // no userId → same null scope
     const out = JSON.parse(res.steps[0]!.output ?? "null") as { val: unknown };
     expect(out.val).toBe("global");
+    db.close();
+  });
+});
+
+// ─── Node.fallbacks: per-node fallback chain ───────────────────────────────
+//
+// Wave-1 item 6: a Node may declare a list of `(integration, operation)`
+// alternates that get tried after the primary exhausts its retry budget.
+// Each fallback attempt runs as its own memoized step row so an audit trail
+// shows exactly which alternates were tried, and replay short-circuits
+// previously-successful fallbacks without re-invocation.
+//
+// The five required cases (per wave-1 brief):
+//   1. primary succeeds → fallbacks not invoked
+//   2. primary fails → fallback[0] succeeds
+//   3. primary + fallback[0] fail → fallback[1] succeeds
+//   4. all fail → FallbacksExhaustedError with full attempt list
+//   5. memoization replay: a previously-cached fallback success returns
+//      from memoization without re-invocation
+//
+// Plus: fallback chain is bypassed for SuspendForEvent (so durable waits
+// inside a primary handler don't accidentally trigger fallbacks).
+
+describe("Executor — Node.fallbacks (per-node alternate chain)", () => {
+  it("case 1: primary succeeds → fallbacks are not invoked", async () => {
+    const db = openDatabase(":memory:");
+    const q = new RunQueue(db);
+    const runId = q.enqueue("wf-fb");
+    q.claim();
+
+    const calls: string[] = [];
+    const primary = makeIntegration("primary", {
+      go: async () => {
+        calls.push("primary");
+        return { from: "primary" };
+      },
+    });
+    const fb1 = makeIntegration("fb1", {
+      go: async () => {
+        calls.push("fb1");
+        return { from: "fb1" };
+      },
+    });
+    const exec = new Executor({
+      db,
+      integrationLoader: makeLoader({ primary, fb1 }),
+      sleep: async () => {},
+    });
+    const workflow = makeWorkflow([
+      {
+        id: "n",
+        integration: "primary",
+        operation: "go",
+        config: {},
+        onError: "retry",
+        fallbacks: [{ integration: "fb1", operation: "go", config: {} }],
+      },
+    ]);
+
+    const res = await exec.run(workflow, runId, {});
+    expect(res.status).toBe("success");
+    expect(calls).toEqual(["primary"]);
+    // No fallback step row was written — only the primary node row.
+    const stepNames = res.steps.map((s) => s.step_name).sort();
+    expect(stepNames).toEqual(["n"]);
+    db.close();
+  });
+
+  it("case 2: primary fails its retry budget → fallback[0] succeeds", async () => {
+    const db = openDatabase(":memory:");
+    const q = new RunQueue(db);
+    const runId = q.enqueue("wf-fb");
+    q.claim();
+
+    let primaryCalls = 0;
+    let fb1Calls = 0;
+    const primary = makeIntegration("primary", {
+      go: async () => {
+        primaryCalls++;
+        throw new Error("primary down");
+      },
+    });
+    const fb1 = makeIntegration("fb1", {
+      go: async () => {
+        fb1Calls++;
+        return { from: "fb1", ok: true };
+      },
+    });
+    const exec = new Executor({
+      db,
+      integrationLoader: makeLoader({ primary, fb1 }),
+      sleep: async () => {},
+    });
+    const workflow = makeWorkflow([
+      {
+        id: "n",
+        integration: "primary",
+        operation: "go",
+        config: {},
+        retry: { maxAttempts: 2, backoffMs: 1, jitter: false },
+        onError: "retry",
+        fallbacks: [{ integration: "fb1", operation: "go", config: {} }],
+      },
+    ]);
+
+    const res = await exec.run(workflow, runId, {});
+    expect(res.status).toBe("success");
+    expect(primaryCalls).toBe(2); // primary tried both retry attempts
+    expect(fb1Calls).toBe(1); // fallback[0] tried once
+
+    // The outer "n" step row is success with fb1's output (not the primary
+    // failure that lives transiently in tryPrimary).
+    const nRow = db
+      .prepare(`SELECT * FROM steps WHERE run_id = ? AND step_name = 'n'`)
+      .get(runId) as { status: string; output: string | null };
+    expect(nRow.status).toBe("success");
+    expect(JSON.parse(nRow.output ?? "null")).toEqual({ from: "fb1", ok: true });
+
+    // The fallback step row was also persisted under the documented name.
+    const fbRow = db
+      .prepare(
+        `SELECT * FROM steps WHERE run_id = ? AND step_name = 'n.fallback.0'`,
+      )
+      .get(runId) as { status: string; output: string | null } | undefined;
+    expect(fbRow).toBeDefined();
+    expect(fbRow!.status).toBe("success");
+    expect(JSON.parse(fbRow!.output ?? "null")).toEqual({
+      from: "fb1",
+      ok: true,
+    });
+    db.close();
+  });
+
+  it("case 3: primary + fallback[0] both fail → fallback[1] succeeds", async () => {
+    const db = openDatabase(":memory:");
+    const q = new RunQueue(db);
+    const runId = q.enqueue("wf-fb");
+    q.claim();
+
+    let primaryCalls = 0;
+    let fb1Calls = 0;
+    let fb2Calls = 0;
+    const primary = makeIntegration("primary", {
+      go: async () => {
+        primaryCalls++;
+        throw new Error("primary down");
+      },
+    });
+    const fb1 = makeIntegration("fb1", {
+      go: async () => {
+        fb1Calls++;
+        throw new Error("fb1 also down");
+      },
+    });
+    const fb2 = makeIntegration("fb2", {
+      go: async () => {
+        fb2Calls++;
+        return { from: "fb2", saved: true };
+      },
+    });
+    const exec = new Executor({
+      db,
+      integrationLoader: makeLoader({ primary, fb1, fb2 }),
+      sleep: async () => {},
+    });
+    const workflow = makeWorkflow([
+      {
+        id: "n",
+        integration: "primary",
+        operation: "go",
+        config: {},
+        retry: { maxAttempts: 1, backoffMs: 1, jitter: false },
+        onError: "fail",
+        fallbacks: [
+          { integration: "fb1", operation: "go", config: {} },
+          { integration: "fb2", operation: "go", config: {} },
+        ],
+      },
+    ]);
+
+    const res = await exec.run(workflow, runId, {});
+    expect(res.status).toBe("success");
+    expect(primaryCalls).toBe(1);
+    expect(fb1Calls).toBe(1);
+    expect(fb2Calls).toBe(1);
+
+    // Both fallback step rows exist — the failed one and the successful one.
+    const fb0Row = db
+      .prepare(`SELECT status, error FROM steps WHERE run_id = ? AND step_name = 'n.fallback.0'`)
+      .get(runId) as { status: string; error: string | null };
+    expect(fb0Row.status).toBe("failed");
+    expect(fb0Row.error).toBe("fb1 also down");
+    const fb1Row = db
+      .prepare(
+        `SELECT status, output FROM steps WHERE run_id = ? AND step_name = 'n.fallback.1'`,
+      )
+      .get(runId) as { status: string; output: string | null };
+    expect(fb1Row.status).toBe("success");
+    expect(JSON.parse(fb1Row.output ?? "null")).toEqual({
+      from: "fb2",
+      saved: true,
+    });
+    db.close();
+  });
+
+  it("case 4: all fail → FallbacksExhaustedError with full attempt list", async () => {
+    const db = openDatabase(":memory:");
+    const q = new RunQueue(db);
+    const runId = q.enqueue("wf-fb");
+    q.claim();
+
+    const primary = makeIntegration("primary", {
+      go: async () => {
+        throw new Error("primary down");
+      },
+    });
+    const fb1 = makeIntegration("fb1", {
+      go: async () => {
+        throw new Error("fb1 also down");
+      },
+    });
+    const fb2 = makeIntegration("fb2", {
+      go: async () => {
+        throw new Error("fb2 also down");
+      },
+    });
+    const exec = new Executor({
+      db,
+      integrationLoader: makeLoader({ primary, fb1, fb2 }),
+      sleep: async () => {},
+    });
+    const workflow = makeWorkflow([
+      {
+        id: "n",
+        integration: "primary",
+        operation: "go",
+        config: {},
+        retry: { maxAttempts: 1, backoffMs: 1, jitter: false },
+        onError: "fail",
+        fallbacks: [
+          { integration: "fb1", operation: "go", config: {} },
+          { integration: "fb2", operation: "go", config: {} },
+        ],
+      },
+    ]);
+
+    const res = await exec.run(workflow, runId, {});
+    expect(res.status).toBe("failed");
+    // Run-level error message includes the original primary failure.
+    expect(res.error).toMatch(/primary down/);
+    expect(res.error).toMatch(/all 2 fallback/);
+
+    // The persisted node step row was written with the FallbacksExhausted
+    // message (since the outer step.run caught the throw).
+    const nRow = db
+      .prepare(`SELECT status, error FROM steps WHERE run_id = ? AND step_name = 'n'`)
+      .get(runId) as { status: string; error: string };
+    expect(nRow.status).toBe("failed");
+    expect(nRow.error).toMatch(/primary down/);
+
+    // Both fallback step rows are 'failed' with their respective messages.
+    const fbRows = db
+      .prepare(
+        `SELECT step_name, status, error FROM steps WHERE run_id = ? AND step_name LIKE 'n.fallback.%' ORDER BY step_name`,
+      )
+      .all(runId) as Array<{ step_name: string; status: string; error: string }>;
+    expect(fbRows).toHaveLength(2);
+    expect(fbRows[0]!.status).toBe("failed");
+    expect(fbRows[0]!.error).toBe("fb1 also down");
+    expect(fbRows[1]!.status).toBe("failed");
+    expect(fbRows[1]!.error).toBe("fb2 also down");
+    db.close();
+  });
+
+  it("case 4 (direct): FallbacksExhaustedError carries the original cause + attempt list", async () => {
+    // Same scenario as above but invokes the executor at a lower level so
+    // we can inspect the FallbacksExhaustedError instance directly (the
+    // outer run() wraps the message into the run row, losing the typed
+    // metadata for assertion purposes).
+    const db = openDatabase(":memory:");
+    const primary = makeIntegration("primary", {
+      go: async () => {
+        throw new Error("primary down");
+      },
+    });
+    const fb1 = makeIntegration("fb1", {
+      go: async () => {
+        throw new Error("fb1 also down");
+      },
+    });
+    const fb2 = makeIntegration("fb2", {
+      go: async () => {
+        throw new Error("fb2 also down");
+      },
+    });
+    const exec = new Executor({
+      db,
+      integrationLoader: makeLoader({ primary, fb1, fb2 }),
+      sleep: async () => {},
+    });
+
+    // Synthesize a StepContext that no-ops memoization (we want raw
+    // invokeNode behavior) — every step.run just executes the fn.
+    const stepCtx = {
+      run: async <T,>(_name: string, fn: () => Promise<T>) => fn(),
+      sleep: async () => {},
+      waitForEvent: async () => {
+        throw new Error("not used");
+      },
+      memory: {
+        get: async () => null,
+        set: async () => {},
+      },
+    } as unknown as import("./executor.js").StepContext;
+
+    const node = {
+      id: "n",
+      integration: "primary",
+      operation: "go",
+      config: {},
+      retry: { maxAttempts: 1, backoffMs: 1, jitter: false },
+      onError: "fail" as const,
+      fallbacks: [
+        { integration: "fb1", operation: "go", config: {} },
+        { integration: "fb2", operation: "go", config: {} },
+      ],
+    };
+
+    let caught: unknown;
+    try {
+      await exec.invokeNode(node, {}, stepCtx);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(FallbacksExhaustedError);
+    const fe = caught as FallbacksExhaustedError;
+    expect(fe.code).toBe("FALLBACKS_EXHAUSTED");
+    expect(fe.integration).toBe("primary");
+    expect(fe.operation).toBe("go");
+    expect((fe.originalCause as Error)?.message).toBe("primary down");
+    expect(fe.fallbackAttempts).toEqual([
+      { integration: "fb1", operation: "go", error: "fb1 also down" },
+      { integration: "fb2", operation: "go", error: "fb2 also down" },
+    ]);
+    db.close();
+  });
+
+  it("case 5: replay short-circuits a previously-successful fallback (no re-invocation)", async () => {
+    const db = openDatabase(":memory:");
+    const q = new RunQueue(db);
+    const runId = q.enqueue("wf-fb");
+    q.claim();
+
+    let primaryCalls = 0;
+    let fb1Calls = 0;
+    const mod1 = makeIntegration("primary", {
+      go: async () => {
+        primaryCalls++;
+        throw new Error("primary down");
+      },
+    });
+    const mod1Fb = makeIntegration("fb1", {
+      go: async () => {
+        fb1Calls++;
+        return { from: "fb1", v: fb1Calls };
+      },
+    });
+    const exec1 = new Executor({
+      db,
+      integrationLoader: makeLoader({ primary: mod1, fb1: mod1Fb }),
+      sleep: async () => {},
+    });
+    const workflow = makeWorkflow([
+      {
+        id: "n",
+        integration: "primary",
+        operation: "go",
+        config: {},
+        retry: { maxAttempts: 1, backoffMs: 1, jitter: false },
+        onError: "fail",
+        fallbacks: [{ integration: "fb1", operation: "go", config: {} }],
+      },
+    ]);
+
+    // First run — primary fails, fb1 succeeds.
+    const r1 = await exec1.run(workflow, runId, {});
+    expect(r1.status).toBe("success");
+    expect(primaryCalls).toBe(1);
+    expect(fb1Calls).toBe(1);
+
+    // Replay against a SECOND executor (proves we read state from the DB).
+    // Wire integrations whose call counters increment if invoked — we
+    // expect them NOT to fire on replay.
+    const mod2 = makeIntegration("primary", {
+      go: async () => {
+        primaryCalls++;
+        return { from: "primary-now-up" };
+      },
+    });
+    const mod2Fb = makeIntegration("fb1", {
+      go: async () => {
+        fb1Calls++;
+        return { from: "fb1-second-call", v: fb1Calls };
+      },
+    });
+    const exec2 = new Executor({
+      db,
+      integrationLoader: makeLoader({ primary: mod2, fb1: mod2Fb }),
+      sleep: async () => {},
+    });
+    const r2 = await exec2.run(workflow, runId, {});
+    expect(r2.status).toBe("success");
+    // The outer "n" step is memoized as success → invokeNode is NOT called
+    // again. Neither the primary nor the fallback re-invokes.
+    expect(primaryCalls).toBe(1);
+    expect(fb1Calls).toBe(1);
+
+    // The replayed run returns the same output as the first run (fb1's
+    // output, not the now-fixed primary's output).
+    const nStep = r2.steps.find((s) => s.step_name === "n");
+    expect(JSON.parse(nStep!.output ?? "null")).toEqual({ from: "fb1", v: 1 });
+    db.close();
+  });
+
+  it("partial replay: when ONLY the fallback succeeded but outer step row is missing → re-runs primary, replays cached fallback", async () => {
+    // This exercises the deeper invariant: the *fallback's* memoization is
+    // independent of the outer node's. If the outer "n" row is somehow not
+    // success but a cached fallback row exists (hypothetical post-crash
+    // state), replay re-runs the primary loop, then short-circuits the
+    // fallback to its cached output.
+    const db = openDatabase(":memory:");
+    const q = new RunQueue(db);
+    const runId = q.enqueue("wf-fb");
+    q.claim();
+
+    let primaryCalls = 0;
+    let fb1Calls = 0;
+    const primary = makeIntegration("primary", {
+      go: async () => {
+        primaryCalls++;
+        throw new Error("primary down");
+      },
+    });
+    const fb1 = makeIntegration("fb1", {
+      go: async () => {
+        fb1Calls++;
+        return { from: "fb1", v: fb1Calls };
+      },
+    });
+    const exec = new Executor({
+      db,
+      integrationLoader: makeLoader({ primary, fb1 }),
+      sleep: async () => {},
+    });
+    const workflow = makeWorkflow([
+      {
+        id: "n",
+        integration: "primary",
+        operation: "go",
+        config: {},
+        retry: { maxAttempts: 1, backoffMs: 1, jitter: false },
+        onError: "fail",
+        fallbacks: [{ integration: "fb1", operation: "go", config: {} }],
+      },
+    ]);
+
+    // First run — primary fails, fb1 succeeds, outer "n" row written success.
+    await exec.run(workflow, runId, {});
+    expect(primaryCalls).toBe(1);
+    expect(fb1Calls).toBe(1);
+
+    // Simulate the post-crash state: clobber the outer "n" row's status to
+    // 'failed' (as if the process crashed before the outer step.run could
+    // write success). The fallback row remains 'success'.
+    db.prepare(
+      `UPDATE steps SET status = 'failed', output = NULL WHERE run_id = ? AND step_name = 'n'`,
+    ).run(runId);
+
+    // Replay — the executor re-runs invokeNode (since "n" isn't success),
+    // primary fails again (incrementing the counter), then step.run for
+    // the fallback finds it cached and short-circuits.
+    await exec.run(workflow, runId, {});
+    expect(primaryCalls).toBe(2); // primary re-ran
+    expect(fb1Calls).toBe(1); // fallback short-circuited from cache
+
+    db.close();
+  });
+
+  it("primary suspension (waitForEvent) does NOT trigger fallbacks", async () => {
+    // SuspendForEvent is a control-flow signal, not a failure — fallbacks
+    // must stay quiet so a primary that's parking durably doesn't have its
+    // alternate fired by accident.
+    const db = openDatabase(":memory:");
+    const q = new RunQueue(db);
+    const runId = q.enqueue("wf-fb");
+    q.claim();
+
+    let fb1Calls = 0;
+    const primary = makeCtxIntegration("primary", {
+      wait: async (_input, ctx) => {
+        const step = (ctx as OperationContext & {
+          step: import("./executor.js").StepContext;
+        }).step;
+        return await step.waitForEvent("park", {
+          eventType: "evt",
+          timeoutMs: 60_000,
+        });
+      },
+    });
+    const fb1 = makeIntegration("fb1", {
+      wait: async () => {
+        fb1Calls++;
+        return { from: "fb1" };
+      },
+    });
+    const exec = new Executor({
+      db,
+      integrationLoader: makeLoader({ primary, fb1 }),
+      now: () => new Date("2026-04-22T00:00:00.000Z"),
+    });
+    const workflow = makeWorkflow([
+      {
+        id: "n",
+        integration: "primary",
+        operation: "wait",
+        config: {},
+        onError: "fail",
+        fallbacks: [{ integration: "fb1", operation: "wait", config: {} }],
+      },
+    ]);
+
+    const res = await exec.run(workflow, runId, {});
+    expect(res.status).toBe("waiting");
+    expect(fb1Calls).toBe(0); // fallback NOT invoked on suspension
+
+    // No fallback step row exists.
+    const fbRow = db
+      .prepare(
+        `SELECT * FROM steps WHERE run_id = ? AND step_name LIKE 'n.fallback.%'`,
+      )
+      .get(runId);
+    expect(fbRow).toBeUndefined();
+    db.close();
+  });
+
+  it("fallback inherits the same inputs the primary received", async () => {
+    const db = openDatabase(":memory:");
+    const q = new RunQueue(db);
+    const runId = q.enqueue("wf-fb");
+    q.claim();
+
+    let observedPrimaryInput: unknown;
+    let observedFbInput: unknown;
+    const primary = makeIntegration("primary", {
+      go: async (input) => {
+        observedPrimaryInput = input;
+        throw new Error("primary down");
+      },
+    });
+    const fb1 = makeIntegration("fb1", {
+      go: async (input) => {
+        observedFbInput = input;
+        return { ok: true };
+      },
+    });
+    const exec = new Executor({
+      db,
+      integrationLoader: makeLoader({ primary, fb1 }),
+      sleep: async () => {},
+    });
+    const workflow = makeWorkflow([
+      {
+        id: "n",
+        integration: "primary",
+        operation: "go",
+        config: {},
+        inputs: { msg: "hello" },
+        retry: { maxAttempts: 1, backoffMs: 1, jitter: false },
+        onError: "fail",
+        fallbacks: [{ integration: "fb1", operation: "go", config: {} }],
+      },
+    ]);
+
+    const res = await exec.run(workflow, runId, { event: "trigger" });
+    expect(res.status).toBe("success");
+    // Both received `{ msg: "hello", triggerPayload: { event: "trigger" } }`.
+    expect(observedPrimaryInput).toEqual({
+      msg: "hello",
+      triggerPayload: { event: "trigger" },
+    });
+    expect(observedFbInput).toEqual({
+      msg: "hello",
+      triggerPayload: { event: "trigger" },
+    });
+    db.close();
+  });
+
+  it("missing fallback operation → that fallback fails, next one tried", async () => {
+    const db = openDatabase(":memory:");
+    const q = new RunQueue(db);
+    const runId = q.enqueue("wf-fb");
+    q.claim();
+
+    const primary = makeIntegration("primary", {
+      go: async () => {
+        throw new Error("primary down");
+      },
+    });
+    const fb1 = makeIntegration("fb1", {
+      // Has integration but not the requested operation.
+      somethingElse: async () => ({ ok: true }),
+    });
+    const fb2 = makeIntegration("fb2", {
+      go: async () => ({ from: "fb2" }),
+    });
+    const exec = new Executor({
+      db,
+      integrationLoader: makeLoader({ primary, fb1, fb2 }),
+      sleep: async () => {},
+    });
+    const workflow = makeWorkflow([
+      {
+        id: "n",
+        integration: "primary",
+        operation: "go",
+        config: {},
+        retry: { maxAttempts: 1, backoffMs: 1, jitter: false },
+        onError: "fail",
+        fallbacks: [
+          { integration: "fb1", operation: "go", config: {} },
+          { integration: "fb2", operation: "go", config: {} },
+        ],
+      },
+    ]);
+
+    const res = await exec.run(workflow, runId, {});
+    expect(res.status).toBe("success");
+    // fb1 failed because operation didn't exist; fb2 succeeded.
+    const fb0Row = db
+      .prepare(
+        `SELECT status, error FROM steps WHERE run_id = ? AND step_name = 'n.fallback.0'`,
+      )
+      .get(runId) as { status: string; error: string };
+    expect(fb0Row.status).toBe("failed");
+    expect(fb0Row.error).toMatch(/has no operation/);
     db.close();
   });
 });
