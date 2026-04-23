@@ -1,0 +1,54 @@
+{
+  "name": "@delightfulchorus/integration-remote-workflow",
+  "version": "0.1.9",
+  "description": "Worknet — invoke a workflow on a remote chorus instance as a single memoized step. Signed Ed25519 calls, mandatory hash pinning, optional reputation/OIDC/allowlist gates. Companion to integration-workflow (local subgraphs).",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "chorus",
+    "chorus-integration",
+    "worknet",
+    "remote-workflow",
+    "federated",
+    "subgraph",
+    "composition",
+    "integration",
+    "n8n-alternative"
+  ],
+  "author": "Chorus contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LamaSu/federated-workflow-runtime.git",
+    "directory": "integrations/remote-workflow"
+  },
+  "bugs": {
+    "url": "https://github.com/LamaSu/federated-workflow-runtime/issues"
+  },
+  "homepage": "https://github.com/LamaSu/federated-workflow-runtime#readme",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "dependencies": {
+    "@delightfulchorus/core": "*",
+    "@delightfulchorus/runtime": "*",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@delightfulchorus/registry": "*",
+    "@noble/ed25519": "^2.1.0",
+    "@noble/hashes": "^1.5.0"
+  }
+}

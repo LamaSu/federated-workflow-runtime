@@ -173,6 +173,25 @@ export {
 export { createServer, type ChorusServer, type CreateServerOptions } from "./server.js";
 export { startServer, type StartServerOptions, type StartServerConfig } from "./start-server.js";
 
+// Trust policy validator + envelope helpers (Wave 3 — worknet). Used by
+// the remote-workflow integration (caller side) and chorus serve
+// --remote-callable (receiver side). See docs in trust-policy.ts.
+export {
+  computeWorkflowHash,
+  envelopeBytes,
+  signCallEnvelope,
+  validateCall,
+  verifyEnvelopeAgainstKeys,
+  DEFAULT_TIMESTAMP_SKEW_MS,
+  type CallEnvelope,
+  type CallerIdentity,
+  type ReputationLookup,
+  type TrustPolicy,
+  type TrustRejectCode,
+  type TrustValidationResult,
+  type ValidateCallOpts,
+} from "./trust-policy.js";
+
 export {
   setDashboard,
   resetDashboard,
