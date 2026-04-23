@@ -1,6 +1,7 @@
 import type { z } from "zod";
 import type { CredentialTestResult } from "./credential-catalog.js";
 import type {
+  ConfigurableFieldSchema,
   ConnectionSchema,
   CredentialSchema,
   CronTriggerSchema,
@@ -37,6 +38,37 @@ export type RedactedErrorReport = z.infer<typeof RedactedErrorReportSchema>;
 export type PatchMetadata = z.infer<typeof PatchMetadataSchema>;
 export type Patch = z.infer<typeof PatchSchema>;
 export type Credential = z.infer<typeof CredentialSchema>;
+export type ConfigurableField = z.infer<typeof ConfigurableFieldSchema>;
+
+/**
+ * Convention for trigger payload `configurable` overrides (Wave 4 item 14).
+ *
+ * The runtime's `triggerPayload` field stays `unknown` for back-compat — any
+ * shape goes through. But there's ONE structural convention the executor
+ * honors: if `triggerPayload` is an object with a `configurable` key whose
+ * value is `Record<string, unknown>`, those entries are treated as
+ * per-invocation overrides for matching `node.configurable[fieldName]`
+ * declarations. Fields not declared on a node are ignored (silently — the
+ * trigger payload may carry overrides intended for OTHER nodes).
+ *
+ * Resolution precedence (executor.ts → resolveConfigurable):
+ *   1. triggerPayload.configurable[fieldName]  (per-invocation override)
+ *   2. node.config[fieldName]                  (declared workflow default)
+ *   3. node.configurable[fieldName].default    (declared field default)
+ *
+ * The merged view is attached to OperationContext as `nodeConfig` so a
+ * handler reads ONE map regardless of override source.
+ *
+ * This is a TYPE-LEVEL helper for documentation + ergonomic call-site code;
+ * it is NOT a Zod schema we validate against (that would force a schema on
+ * everyone's trigger payloads). The duck-typed extraction in the executor
+ * is the source of truth.
+ */
+export type ConfigurableOverrides = Record<string, unknown>;
+export interface TriggerPayloadWithConfigurable {
+  configurable?: ConfigurableOverrides;
+  [key: string]: unknown;
+}
 
 export interface OperationContext {
   credentials: Record<string, unknown> | null;

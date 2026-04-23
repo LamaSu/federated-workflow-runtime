@@ -51,6 +51,38 @@ export const NodeRefSchema = z.object({
   config: z.record(z.unknown()).default({}),
 });
 
+/**
+ * Schema for a single user-overridable config field on a Node. Borrows from
+ * LangChain Expression Language's `configurable_fields` pattern: the Node
+ * declares which keys callers may override at invoke-time, and supplies a
+ * `default` used when neither `node.config[fieldName]` nor the trigger
+ * payload's `configurable[fieldName]` is present.
+ *
+ * Example:
+ *   configurable: {
+ *     model:       { default: "claude-haiku-4-5", description: "model id" },
+ *     temperature: { default: 0.7 }
+ *   }
+ *
+ * Then a trigger like `{configurable: {model: "claude-opus-4-7"}}` swaps
+ * the model without forking the workflow. Resolution precedence at the
+ * executor (see packages/runtime/src/executor.ts → resolveConfigurable):
+ *
+ *   1. triggerPayload.configurable[fieldName]    (per-invocation override)
+ *   2. node.config[fieldName]                    (declared workflow default)
+ *   3. node.configurable[fieldName].default      (declared field default)
+ *
+ * Memoization keys embed the resolved configurable values, so different
+ * overrides produce different memo rows on the same workflow.
+ *
+ * Top-level Node only — fallback NodeRefs and nested workflow children do
+ * NOT honor `configurable` (Wave 4 brief, "What NOT to do").
+ */
+export const ConfigurableFieldSchema = z.object({
+  default: z.unknown(),
+  description: z.string().optional(),
+});
+
 export const NodeSchema = z.object({
   id: z.string(),
   integration: z.string(),
@@ -78,6 +110,14 @@ export const NodeSchema = z.object({
    * alternates ran.
    */
   fallbacks: z.array(NodeRefSchema).optional(),
+  /**
+   * Declares which config keys this node accepts as invoke-time overrides
+   * via `triggerPayload.configurable[fieldName]`. Each declared field
+   * supplies a `default` used when neither the workflow's static
+   * `node.config[fieldName]` nor the trigger override is present.
+   * See ConfigurableFieldSchema docstring for full semantics.
+   */
+  configurable: z.record(ConfigurableFieldSchema).optional(),
 });
 
 export const ConnectionSchema = z.object({
