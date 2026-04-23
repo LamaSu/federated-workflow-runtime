@@ -28,10 +28,13 @@ import { COMPOSE_SYSTEM_PROMPT } from "../prompts/compose-system.js";
 /**
  * Minimal shape of the Vercel AI SDK `generateObject` return we actually
  * consume. Declared locally so the command module's type surface doesn't
- * leak the SDK's full API into @delightfulchorus/cli consumers.
+ * leak the SDK's full API into @delightfulchorus/cli consumers. The
+ * `object` field is typed `unknown` because Zod is the source of truth —
+ * whatever the SDK hands us goes through `WorkflowSchema.safeParse` before
+ * we trust it.
  */
-export interface GenerateObjectResult<T> {
-  object: T;
+export interface GenerateObjectResult {
+  object: unknown;
 }
 
 /**
@@ -47,13 +50,18 @@ export type LanguageModelLike = any;
 /**
  * Injectable generateObject. Defaults to the real Vercel AI SDK function.
  * Tests override this so we never make a network call.
+ *
+ * Non-generic: the `object` return is `unknown` and runtime-validated by
+ * `WorkflowSchema`. Keeping this non-generic avoids the `T could be
+ * instantiated with an arbitrary type` error when consumers inject test
+ * stubs that return concrete fixtures.
  */
-export type GenerateObjectFn = <T>(args: {
+export type GenerateObjectFn = (args: {
   model: LanguageModelLike;
   schema: z.ZodTypeAny;
   system: string;
   prompt: string;
-}) => Promise<GenerateObjectResult<T>>;
+}) => Promise<GenerateObjectResult>;
 
 export interface ComposeOptions {
   /** The user's natural-language description of the workflow. */
@@ -144,7 +152,7 @@ export async function runCompose(options: ComposeOptions): Promise<ComposeResult
 
     let candidate: unknown;
     try {
-      const result = await generateObject<unknown>({
+      const result = await generateObject({
         model,
         schema: WorkflowSchema,
         system: COMPOSE_SYSTEM_PROMPT,
