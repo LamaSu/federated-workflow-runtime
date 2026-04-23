@@ -1,0 +1,60 @@
+{
+  "name": "@delightfulchorus/integration-agent",
+  "version": "0.1.9",
+  "description": "Agent step — plan-and-execute Ralph loop that uses other Chorus integrations as tools.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "chorus",
+    "chorus-integration",
+    "workflow",
+    "agent",
+    "ralph-loop",
+    "plan-and-execute",
+    "ai-sdk",
+    "integration",
+    "n8n-alternative"
+  ],
+  "author": "Chorus contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LamaSu/federated-workflow-runtime.git",
+    "directory": "integrations/agent"
+  },
+  "bugs": {
+    "url": "https://github.com/LamaSu/federated-workflow-runtime/issues"
+  },
+  "homepage": "https://github.com/LamaSu/federated-workflow-runtime#readme",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsup src/index.ts src/planner.ts --format esm --dts --clean",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "dependencies": {
+    "@delightfulchorus/core": "*",
+    "ai": "^4.0.0",
+    "zod": "^3.23.0"
+  },
+  "peerDependencies": {
+    "@ai-sdk/anthropic": "^1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@ai-sdk/anthropic": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@ai-sdk/anthropic": "^1.0.0"
+  }
+}
