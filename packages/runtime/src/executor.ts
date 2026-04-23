@@ -13,6 +13,7 @@ import type {
 import { FallbacksExhaustedError, WaitForEventCallSchema } from "@delightfulchorus/core";
 import type { DatabaseType, StepRow } from "./db.js";
 import { QueryHelpers } from "./db.js";
+import { Mutex } from "./mutex.js";
 import { TIMEOUT_EVENT_ID } from "./triggers/event.js";
 import {
   askUserEventType,
@@ -158,6 +159,50 @@ export interface StepContext {
   run<T>(name: string, fn: () => Promise<T>): Promise<T>;
   sleep(name: string, durationMs: number): Promise<void>;
   /**
+   * Runtime-decided parallel fan-out (chorus's answer to LangGraph's `Send`).
+   *
+   * For each `items[i]`, invoke `fn(item, i)` wrapped in its own memoized
+   * `step.run("${name}.${i}", ...)` call. All children run in parallel; the
+   * promise resolves to an array of results in INPUT ORDER (not completion
+   * order).
+   *
+   * Memoization invariants:
+   *   • Each child gets its own `${name}.${index}` row in the `steps` table
+   *     with its own retry budget (inherited from the enclosing node).
+   *   • The fanOut itself is NOT a separate step row — it's a coordination
+   *     primitive over its children.
+   *   • Replay: cached children short-circuit; failed children re-execute.
+   *     Partial-failure recovery is automatic via the underlying step.run
+   *     memoization.
+   *
+   * Failure mode:
+   *   • If any child throws, fanOut rejects with an `AggregateError`
+   *     wrapping the failed children. Successful children still write their
+   *     `success` rows; on rerun the cached results replay and only the
+   *     failed children re-invoke.
+   *   • A child throwing `SuspendForEvent` (from `step.waitForEvent` /
+   *     `step.askUser`) propagates as a normal suspension — the parent run
+   *     parks. Other in-flight children's results are NOT lost: their
+   *     step.run rows are written before suspension propagates.
+   *
+   * Example:
+   * ```ts
+   * const results = await step.fanOut("scrape", urls, async (url, i) => {
+   *   return await fetchAndExtract(url);
+   * });
+   * // results[0] corresponds to urls[0], etc.
+   * ```
+   *
+   * Concurrency note: SQLite writes from parallel children are serialized
+   * through an internal Mutex on the dispatcher's DB connection — handler
+   * invocations themselves remain unrestricted (true parallelism).
+   */
+  fanOut<TItem, TResult>(
+    name: string,
+    items: readonly TItem[],
+    fn: (item: TItem, index: number) => Promise<TResult>,
+  ): Promise<TResult[]>;
+  /**
    * Durably wait for an external event (ROADMAP §6). Survives process
    * restarts — a waiting_steps row is persisted; the dispatch loop
    * resolves it when a matching event arrives or the timeout passes.
@@ -250,48 +295,76 @@ export class Executor {
     const helpers = this.helpers;
     const now = this.now;
 
+    // Per-run mutex serializing the SQLite write critical sections of
+    // step.run. Created fresh per run so two concurrent runs (different
+    // runIds) don't contend on each other unnecessarily — SQLite's own
+    // synchronous nature handles cross-run serialization at the DB layer.
+    // Within a single run, parallel `step.fanOut` children DO need this:
+    // their per-child step.run invocations interleave at the JS scheduler
+    // boundary, and the read-then-write sequence (getCompletedStep →
+    // upsertStep('running')) must observe a consistent view per name.
+    // See packages/runtime/src/mutex.ts for the rationale + alternatives.
+    const writeMutex = new Mutex();
+
     const makeStepContext = (): StepContext => ({
       run: async <T,>(name: string, fn: () => Promise<T>): Promise<T> => {
-        if (seenNames.has(name)) {
-          logger.warn(`duplicate step name "${name}" in run ${runId} — only first executes`);
-        }
-        seenNames.add(name);
+        // Phase 1: memoization check + 'running' upsert under the write
+        // mutex. Holding across both keeps the (read miss → insert running)
+        // transition atomic w.r.t. concurrent step.run calls. Releases
+        // BEFORE the handler awaits so handlers can run in parallel.
+        let cachedOutput: string | undefined;
+        let startedAt = "";
+        await writeMutex.withLock(() => {
+          if (seenNames.has(name)) {
+            logger.warn(`duplicate step name "${name}" in run ${runId} — only first executes`);
+          }
+          seenNames.add(name);
 
-        const completed = this.helpers.getCompletedStep(runId, name);
-        if (completed && completed.output !== null && completed.output !== undefined) {
-          return JSON.parse(completed.output) as T;
-        }
+          const completed = this.helpers.getCompletedStep(runId, name);
+          if (completed && completed.output !== null && completed.output !== undefined) {
+            cachedOutput = completed.output;
+            return;
+          }
 
-        const startedAt = this.now().toISOString();
-        this.helpers.upsertStep({
-          run_id: runId,
-          step_name: name,
-          attempt: 1,
-          status: "running",
-          input: null,
-          output: null,
-          error: null,
-          error_sig_hash: null,
-          started_at: startedAt,
-          finished_at: null,
-          duration_ms: null,
-        });
-
-        try {
-          const out = await fn();
-          const finishedAt = this.now().toISOString();
+          startedAt = this.now().toISOString();
           this.helpers.upsertStep({
             run_id: runId,
             step_name: name,
             attempt: 1,
-            status: "success",
+            status: "running",
             input: null,
-            output: JSON.stringify(out ?? null),
+            output: null,
             error: null,
             error_sig_hash: null,
             started_at: startedAt,
-            finished_at: finishedAt,
-            duration_ms: Date.parse(finishedAt) - Date.parse(startedAt),
+            finished_at: null,
+            duration_ms: null,
+          });
+        });
+
+        if (cachedOutput !== undefined) {
+          return JSON.parse(cachedOutput) as T;
+        }
+
+        // Phase 2: handler runs OUTSIDE the mutex — full parallelism.
+        try {
+          const out = await fn();
+          // Phase 3: success upsert under the write mutex.
+          await writeMutex.withLock(() => {
+            const finishedAt = this.now().toISOString();
+            this.helpers.upsertStep({
+              run_id: runId,
+              step_name: name,
+              attempt: 1,
+              status: "success",
+              input: null,
+              output: JSON.stringify(out ?? null),
+              error: null,
+              error_sig_hash: null,
+              started_at: startedAt,
+              finished_at: finishedAt,
+              duration_ms: Date.parse(finishedAt) - Date.parse(startedAt),
+            });
           });
           return out;
         } catch (err) {
@@ -303,19 +376,22 @@ export class Executor {
             throw err;
           }
           const e = err as Error;
-          const finishedAt = this.now().toISOString();
-          this.helpers.upsertStep({
-            run_id: runId,
-            step_name: name,
-            attempt: 1,
-            status: "failed",
-            input: null,
-            output: null,
-            error: e.message,
-            error_sig_hash: null,
-            started_at: startedAt,
-            finished_at: finishedAt,
-            duration_ms: Date.parse(finishedAt) - Date.parse(startedAt),
+          // Phase 3 (failure path): failed upsert under the write mutex.
+          await writeMutex.withLock(() => {
+            const finishedAt = this.now().toISOString();
+            this.helpers.upsertStep({
+              run_id: runId,
+              step_name: name,
+              attempt: 1,
+              status: "failed",
+              input: null,
+              output: null,
+              error: e.message,
+              error_sig_hash: null,
+              started_at: startedAt,
+              finished_at: finishedAt,
+              duration_ms: Date.parse(finishedAt) - Date.parse(startedAt),
+            });
           });
           throw e;
         }
@@ -341,6 +417,79 @@ export class Executor {
           finished_at: nowIso,
           duration_ms: durationMs,
         });
+      },
+
+      fanOut: async <TItem, TResult>(
+        name: string,
+        items: readonly TItem[],
+        fn: (item: TItem, index: number) => Promise<TResult>,
+      ): Promise<TResult[]> => {
+        // Empty-input fast path: nothing to fan out, no step rows written.
+        // Idiomatic Promise.all([]) returns []; we mirror that exactly.
+        if (items.length === 0) {
+          return [];
+        }
+
+        // Each child is an independent memoized step.run with a unique
+        // name. Promise.allSettled (vs Promise.all) lets us drain ALL
+        // children even when some fail — successful children's step.run
+        // rows are written to disk before we surface the aggregate
+        // failure, so a rerun replays them from cache. SuspendForEvent
+        // children must propagate immediately, so we re-throw the first
+        // suspension we see (other children's writes have already
+        // completed via step.run's own write-mutex serialization, so we
+        // don't lose their progress on park).
+        const settled = await Promise.allSettled(
+          items.map((item, index) =>
+            // step.run's own naming check would fire on collisions;
+            // ${name}.${index} is collision-free by construction.
+            step.run(`${name}.${index}`, () => fn(item, index)),
+          ),
+        );
+
+        // First pass: surface a SuspendForEvent immediately if any child
+        // is parking. Their step rows have already been written by the
+        // inner step.run's write-mutex critical sections — no progress
+        // is lost. The outer run() will return status='waiting'.
+        for (const r of settled) {
+          if (r.status === "rejected" && r.reason instanceof SuspendForEvent) {
+            throw r.reason;
+          }
+        }
+
+        // Second pass: collect failures (NOT suspensions). If any child
+        // genuinely failed, throw an AggregateError that carries every
+        // child error in input order. Successful children remain
+        // memoized — partial-failure rerun replays them.
+        const failures: Array<{ index: number; error: unknown }> = [];
+        const results: TResult[] = new Array(items.length);
+        for (let i = 0; i < settled.length; i++) {
+          const r = settled[i]!;
+          if (r.status === "fulfilled") {
+            results[i] = r.value;
+          } else {
+            failures.push({ index: i, error: r.reason });
+          }
+        }
+        if (failures.length > 0) {
+          // Use Node's built-in AggregateError so callers can introspect
+          // `err.errors`. Preserve the original Error instances so stack
+          // traces survive. Also carry the failed child names for ops
+          // visibility — these are the rows that will re-execute on
+          // rerun.
+          const errs = failures.map((f) =>
+            f.error instanceof Error ? f.error : new Error(String(f.error)),
+          );
+          const failedNames = failures
+            .map((f) => `${name}.${f.index}`)
+            .join(", ");
+          const ag = new AggregateError(
+            errs,
+            `step.fanOut("${name}") had ${failures.length}/${items.length} failure(s) [${failedNames}]; on rerun, only failed children re-execute`,
+          );
+          throw ag;
+        }
+        return results;
       },
 
       waitForEvent: async (
