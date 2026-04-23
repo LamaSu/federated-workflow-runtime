@@ -15,6 +15,7 @@ import { ManualTrigger } from "./triggers/manual.js";
 import { OAuthRefresher } from "./oauth.js";
 import { ExpiryAlarm } from "./expiry-alarm.js";
 import { registerApiRoutes } from "./api/index.js";
+import { registerAskRoutes } from "./ask-routes.js";
 import type { EventDispatcher } from "./triggers/event.js";
 import { getDashboardHtml, getDashboardEtag } from "./static/holder.js";
 
@@ -120,6 +121,13 @@ export function createServer(opts: CreateServerOptions): ChorusServer {
     apiToken,
     eventDispatcher: opts.eventDispatcher,
   });
+
+  // POST /ask/:runId/:stepName — webhook endpoint for step.askUser answers.
+  // Only mounts when an event dispatcher is configured (otherwise there's
+  // nowhere to route the resulting synthetic event).
+  if (opts.eventDispatcher) {
+    registerAskRoutes(app, db, { dispatcher: opts.eventDispatcher });
+  }
 
   // Ambient dashboard --------------------------------------------------------
   // `/` and `/dashboard` serve the current dashboard HTML (minimal by
