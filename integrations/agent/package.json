@@ -1,6 +1,6 @@
 {
   "name": "@delightfulchorus/integration-agent",
-  "version": "0.1.9",
+  "version": "0.2.0",
   "description": "Agent step — plan-and-execute Ralph loop that uses other Chorus integrations as tools.",
   "type": "module",
   "main": "./dist/index.js",
@@ -16,7 +16,10 @@
     "agent",
     "ralph-loop",
     "plan-and-execute",
-    "ai-sdk",
+    "anthropic",
+    "openai",
+    "gemini",
+    "vendor-agnostic",
     "integration",
     "n8n-alternative"
   ],
@@ -43,18 +46,6 @@
   },
   "dependencies": {
     "@delightfulchorus/core": "*",
-    "ai": "^4.0.0",
     "zod": "^3.23.0"
-  },
-  "peerDependencies": {
-    "@ai-sdk/anthropic": "^1.0.0"
-  },
-  "peerDependenciesMeta": {
-    "@ai-sdk/anthropic": {
-      "optional": true
-    }
-  },
-  "devDependencies": {
-    "@ai-sdk/anthropic": "^1.0.0"
   }
 }
