@@ -75,6 +75,8 @@ export {
   type IntegrationLoader,
   type RetryPolicy,
   type StepContext,
+  type SubgraphRunner,
+  type SubgraphRunResult,
   type WaitForEventResult,
 } from "./executor.js";
 
