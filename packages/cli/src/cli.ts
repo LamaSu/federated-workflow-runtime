@@ -45,6 +45,8 @@ import {
   mcpServe,
   mcpConfig,
 } from "./commands/mcp.js";
+import { runShareCli } from "./commands/share.js";
+import { runImportCli } from "./commands/import.js";
 
 /**
  * Read version from the CLI package's own package.json at runtime. Works
@@ -343,6 +345,42 @@ export function buildProgram(): Command {
       const code = await listWaiting({ json: opts.json });
       process.exit(code);
     });
+
+  // ── share ─────────────────────────────────────────────────────────────────
+  program
+    .command("share <workflowId>")
+    .description(
+      "export a workflow as a shareable template (credentials redacted). See docs/CLOUD_DISTRIBUTION.md",
+    )
+    .option("--gist", "POST to GitHub Gist (requires @octokit/rest; uses GITHUB_TOKEN or gh auth token)")
+    .option("--out <file>", "write to specified path instead of <slug>.chorus-template.json")
+    .action(
+      async (workflowId: string, opts: { gist?: boolean; out?: string }) => {
+        const code = await runShareCli({
+          workflowId,
+          gist: opts.gist,
+          out: opts.out,
+        });
+        process.exit(code);
+      },
+    );
+
+  // ── import ────────────────────────────────────────────────────────────────
+  program
+    .command("import <source>")
+    .description(
+      "import a chorus template (file path or http(s) url). See docs/CLOUD_DISTRIBUTION.md",
+    )
+    .option("--rename <slug>", "change the workflow id on import (handy for importing variants)")
+    .action(
+      async (source: string, opts: { rename?: string }) => {
+        const code = await runImportCli({
+          source,
+          rename: opts.rename,
+        });
+        process.exit(code);
+      },
+    );
 
   // ── mcp ───────────────────────────────────────────────────────────────────
   const mcp = program

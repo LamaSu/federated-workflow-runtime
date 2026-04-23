@@ -58,6 +58,38 @@ export {
 } from "./commands/credentials.js";
 
 export {
+  runShare,
+  runShareCli,
+  TEMPLATE_SCHEMA_VERSION,
+  type ShareOptions,
+  type ShareResult,
+  type ChorusTemplate,
+  type GistClient,
+} from "./commands/share.js";
+
+export {
+  runImport,
+  runImportCli,
+  listTemplateCredentialRefs,
+  templateHasCredentialRefs,
+  type ImportOptions,
+  type ImportResult,
+} from "./commands/import.js";
+
+export {
+  redactCredentials,
+  gatherCredentialRefs,
+  countCredentialRefs,
+  isCredentialRef,
+  type CredentialRef,
+  type IntegrationCatalogs,
+  type RedactResult,
+  type RedactedWorkflow,
+  type RedactedNode,
+  type RefBucket,
+} from "./lib/credential-redaction.js";
+
+export {
   ChorusConfigSchema,
   ConfigNotFoundError,
   loadConfig,
