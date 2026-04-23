@@ -56,6 +56,7 @@ import {
 } from "@delightfulchorus/core";
 import { z } from "zod";
 import {
+  buildIntegrationBackedPlanner,
   planAndExecute,
   PROVIDER_REGISTRY,
   type IntegrationLoader,
