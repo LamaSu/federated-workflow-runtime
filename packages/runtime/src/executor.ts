@@ -312,7 +312,7 @@ export class Executor {
         // mutex. Holding across both keeps the (read miss → insert running)
         // transition atomic w.r.t. concurrent step.run calls. Releases
         // BEFORE the handler awaits so handlers can run in parallel.
-        let cachedOutput: string | null | undefined;
+        let cachedOutput: string | undefined;
         let startedAt = "";
         await writeMutex.withLock(() => {
           if (seenNames.has(name)) {
