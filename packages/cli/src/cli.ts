@@ -22,6 +22,7 @@ import { Command } from "commander";
 import pc from "picocolors";
 import { runInit } from "./commands/init.js";
 import { runRun } from "./commands/run.js";
+import { runRunHistory, runRunReplay } from "./commands/run-history.js";
 import { runReport } from "./commands/report.js";
 import { runValidate } from "./commands/validate.js";
 import { runUi } from "./commands/ui.js";
@@ -102,7 +103,13 @@ export function buildProgram(): Command {
     });
 
   // ── run ───────────────────────────────────────────────────────────────────
-  program
+  // The `run` command supports BOTH a default action (`chorus run [workflow]`
+  // → starts the runtime) AND subcommands (`chorus run history`, `chorus run
+  // replay`). Commander resolves a typed-in subcommand name FIRST, falling
+  // through to the parent action only when no subcommand matches. There is a
+  // theoretical clash if a user names a workflow "history" or "replay", but
+  // those names would never round-trip through `chorus init` anyway.
+  const runCmd = program
     .command("run [workflow]")
     .description("start the runtime (foreground). With a workflow id, run just that one.")
     .option("--dry-run", "parse + validate workflows, do not start the executor")
@@ -115,6 +122,49 @@ export function buildProgram(): Command {
       });
       process.exit(code);
     });
+
+  // chorus run history <runId> ─ inspect per-step rows for a past run
+  runCmd
+    .command("history <runId>")
+    .description("list per-step rows (input hash, status, duration, output) for a run")
+    .option("--json", "output JSON")
+    .action(async (runId: string, opts: { json?: boolean }) => {
+      const code = await runRunHistory({ runId, json: opts.json });
+      process.exit(code);
+    });
+
+  // chorus run replay <runId> --from <stepName> [--mutate p=v ...]
+  // Forks the source run into a NEW run that re-executes from `stepName`.
+  // Steps before that are replayed from the source's memoized rows; the
+  // from-step (and downstream) execute fresh. Optional --mutate flags
+  // patch node.inputs on the from-step (creates a sibling workflow row
+  // with the mutated definition; original workflow definition is
+  // untouched).
+  runCmd
+    .command("replay <runId>")
+    .description("fork a run, re-executing from <stepName> onward (with optional input mutations)")
+    .requiredOption("--from <stepName>", "step name to start re-execution from")
+    .option(
+      "--mutate <pathEqValue>",
+      "mutate the from-step's node.inputs (e.g. user.name=alice). Repeatable.",
+      (v: string, prev: string[] = []) => prev.concat([v]),
+      [] as string[],
+    )
+    .option("--json", "output JSON")
+    .action(
+      async (
+        runId: string,
+        opts: { from: string; mutate?: string[]; json?: boolean },
+      ) => {
+        const code = await runRunReplay({
+          runId,
+          fromStep: opts.from,
+          mutates: opts.mutate,
+          json: opts.json,
+        });
+        process.exit(code);
+      },
+    );
 
   // ── report ────────────────────────────────────────────────────────────────
   program
