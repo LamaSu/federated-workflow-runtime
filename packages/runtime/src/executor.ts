@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type {
   IntegrationModule,
   Logger,
+  MemoryStore,
   Node as WorkflowNode,
   OperationContext,
   OperationHandler,
@@ -152,6 +153,19 @@ export interface StepContext {
    *   - Replay with still-pending row → suspends again.
    */
   waitForEvent(stepName: string, call: WaitForEventCall): Promise<WaitForEventResult>;
+  /**
+   * Per-workflow (optionally per-user) durable KV store.
+   *
+   * Reads/writes are routed through `step.run(...)` so a crash between
+   * a `set()` and the next replay re-executes the set idempotently. The
+   * memoization key embeds the memory key, so different memory keys
+   * don't collide inside a single run.
+   *
+   * Per-user scoping is automatic: the run's trigger payload is
+   * inspected for `userId` (or `user.id`); when present, writes are
+   * scoped to that user. Otherwise the row is workflow-global.
+   */
+  memory: MemoryStore;
 }
 
 export class Executor {
@@ -183,6 +197,15 @@ export class Executor {
   ): Promise<ExecutorResult> {
     const seenNames = new Set<string>();
     const logger = this.logger;
+
+    // Extract userId for memory scoping. We look at `triggerPayload.userId`
+    // first (the common case — webhook body, manual invocation, etc.)
+    // and fall back to `triggerPayload.user.id` for providers that nest
+    // the identity. Anything else → null (workflow-global namespace).
+    const userId = extractUserId(triggerPayload);
+    const workflowId = workflow.id;
+    const helpers = this.helpers;
+    const now = this.now;
 
     const makeStepContext = (): StepContext => ({
       run: async <T,>(name: string, fn: () => Promise<T>): Promise<T> => {
@@ -389,9 +412,58 @@ export class Executor {
         // 4. Suspend — throw a control-flow signal the outer run() catches.
         throw new SuspendForEvent(name, call.eventType);
       },
+
+      memory: {
+        // Both get and set are routed through step.run(...) so repeated
+        // executions of the same handler (replay, retries) don't
+        // duplicate writes or misattribute reads. The step name embeds
+        // the memory key so different keys get different memoization
+        // slots inside the same run.
+        //
+        // NOTE: These closures reference `step` declared below
+        // `makeStepContext()`. That's safe — the closures only dereference
+        // `step` when invoked (after `const step = makeStepContext()`
+        // runs), not when the object literal is constructed.
+        get: async (key: string): Promise<unknown> => {
+          return step.run(
+            `memory:get:${key}`,
+            async () => {
+              const row = helpers.getMemory(workflowId, userId, key);
+              if (!row) return null;
+              try {
+                return JSON.parse(row.value_json);
+              } catch {
+                // Defensive — a corrupted row shouldn't crash the run.
+                logger.warn(
+                  `memory:get:${key} — stored value is not valid JSON, returning null`,
+                );
+                return null;
+              }
+            },
+          );
+        },
+        set: async (key: string, value: unknown): Promise<void> => {
+          // The set is routed through a step.run so a crash between the
+          // SQLite write and the next cache-miss replay is idempotent:
+          // the memoized output (undefined) short-circuits the second
+          // write. Even without memoization the upsert is idempotent by
+          // PK, but step.run keeps the write semantically "once per run
+          // + key".
+          await step.run(`memory:set:${key}`, async () => {
+            helpers.upsertMemory({
+              workflow_id: workflowId,
+              user_id: userId,
+              key,
+              value_json: JSON.stringify(value ?? null),
+              updated_at: now().getTime(),
+            });
+            return null;
+          });
+        },
+      },
     });
 
-    const step = makeStepContext();
+    const step: StepContext = makeStepContext();
     const steps: StepRow[] = [];
 
     // Track per-node outputs (keyed by node.id) so `Connection.when?`
@@ -582,4 +654,28 @@ function safeParseJsonExecutor(s: string): unknown {
   } catch {
     return null;
   }
+}
+
+/**
+ * Derive a user-scope identifier from the run's trigger payload for
+ * use with `step.memory`. Supports the two shapes most commonly produced
+ * by webhook/manual triggers:
+ *
+ *   { userId: "abc" }         → "abc"
+ *   { user: { id: "abc" } }   → "abc"
+ *
+ * Anything else (undefined, wrong type, absent) yields null — the
+ * workflow-global namespace.
+ */
+function extractUserId(triggerPayload: unknown): string | null {
+  if (!triggerPayload || typeof triggerPayload !== "object") return null;
+  const p = triggerPayload as Record<string, unknown>;
+  const direct = p["userId"];
+  if (typeof direct === "string" && direct.length > 0) return direct;
+  const nested = p["user"];
+  if (nested && typeof nested === "object") {
+    const nid = (nested as Record<string, unknown>)["id"];
+    if (typeof nid === "string" && nid.length > 0) return nid;
+  }
+  return null;
 }

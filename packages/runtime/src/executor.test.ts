@@ -1020,3 +1020,358 @@ describe("Executor — Connection.when? conditional edge routing", () => {
     db.close();
   });
 });
+
+// ─── step.memory.get/set — durable per-workflow KV ─────────────────────────
+//
+// The memory primitive gives handlers a durable, scoped KV store they can
+// use to carry state across runs of the same workflow. Scope is always
+// (workflow_id, user_id?) — two different workflows, and two different
+// users of the same workflow, don't see each other's data.
+//
+// Both get/set are routed through `step.run(...)` so a crash mid-write
+// re-executes idempotently on replay.
+
+describe("Executor — step.memory (durable per-workflow KV)", () => {
+  it("set then get round-trips within a single run", async () => {
+    const db = openDatabase(":memory:");
+    const q = new RunQueue(db);
+    const runId = q.enqueue("wf-mem");
+    q.claim();
+
+    let observed: unknown;
+    const mod = makeCtxIntegration("stub", {
+      roundtrip: async (_input, ctx) => {
+        const step = (ctx as OperationContext & {
+          step: import("./executor.js").StepContext;
+        }).step;
+        await step.memory.set("greeting", "hello");
+        observed = await step.memory.get("greeting");
+        return { observed };
+      },
+    });
+    const exec = new Executor({
+      db,
+      integrationLoader: makeLoader({ stub: mod }),
+    });
+    const workflow = makeWorkflow([
+      { id: "n", integration: "stub", operation: "roundtrip", config: {}, onError: "fail" },
+    ]);
+    const res = await exec.run(workflow, runId, {});
+    expect(res.status).toBe("success");
+    expect(observed).toBe("hello");
+    db.close();
+  });
+
+  it("persists across runs of the same workflow (run 1 sets; run 2 reads)", async () => {
+    const db = openDatabase(":memory:");
+    const q = new RunQueue(db);
+
+    const mod1 = makeCtxIntegration("stub", {
+      bump: async (_input, ctx) => {
+        const step = (ctx as OperationContext & {
+          step: import("./executor.js").StepContext;
+        }).step;
+        const prev = (await step.memory.get("counter")) as number | null;
+        const next = (prev ?? 0) + 1;
+        await step.memory.set("counter", next);
+        return { counter: next };
+      },
+    });
+    const exec1 = new Executor({
+      db,
+      integrationLoader: makeLoader({ stub: mod1 }),
+    });
+    const workflow = makeWorkflow([
+      { id: "n", integration: "stub", operation: "bump", config: {}, onError: "fail" },
+    ]);
+
+    // Run #1: counter → 1
+    const r1Id = q.enqueue("wf-counter", { id: "run-1" });
+    q.claim();
+    const r1 = await exec1.run(
+      { ...workflow, id: "wf-counter" },
+      r1Id,
+      {},
+    );
+    expect(r1.status).toBe("success");
+    const out1 = JSON.parse(r1.steps.find((s) => s.step_name === "n")!.output ?? "null") as {
+      counter: number;
+    };
+    expect(out1.counter).toBe(1);
+
+    // Run #2: counter → 2 (inherits from run #1's set)
+    const r2Id = q.enqueue("wf-counter", { id: "run-2" });
+    q.claim();
+    const r2 = await exec1.run(
+      { ...workflow, id: "wf-counter" },
+      r2Id,
+      {},
+    );
+    expect(r2.status).toBe("success");
+    const out2 = JSON.parse(r2.steps.find((s) => s.step_name === "n")!.output ?? "null") as {
+      counter: number;
+    };
+    expect(out2.counter).toBe(2);
+    db.close();
+  });
+
+  it("get on an unset key returns null", async () => {
+    const db = openDatabase(":memory:");
+    const q = new RunQueue(db);
+    const runId = q.enqueue("wf-mem");
+    q.claim();
+
+    let observed: unknown = "UNSET";
+    const mod = makeCtxIntegration("stub", {
+      peek: async (_input, ctx) => {
+        const step = (ctx as OperationContext & {
+          step: import("./executor.js").StepContext;
+        }).step;
+        observed = await step.memory.get("never-set");
+        return { observed };
+      },
+    });
+    const exec = new Executor({
+      db,
+      integrationLoader: makeLoader({ stub: mod }),
+    });
+    const workflow = makeWorkflow([
+      { id: "n", integration: "stub", operation: "peek", config: {}, onError: "fail" },
+    ]);
+    await exec.run(workflow, runId, {});
+    expect(observed).toBeNull();
+    db.close();
+  });
+
+  it("scopes by workflow_id: two workflows don't share memory", async () => {
+    const db = openDatabase(":memory:");
+    const q = new RunQueue(db);
+
+    const mod = makeCtxIntegration("stub", {
+      setA: async (_input, ctx) => {
+        const step = (ctx as OperationContext & {
+          step: import("./executor.js").StepContext;
+        }).step;
+        await step.memory.set("shared", "a-value");
+        return { ok: true };
+      },
+      readB: async (_input, ctx) => {
+        const step = (ctx as OperationContext & {
+          step: import("./executor.js").StepContext;
+        }).step;
+        return { val: await step.memory.get("shared") };
+      },
+    });
+    const exec = new Executor({
+      db,
+      integrationLoader: makeLoader({ stub: mod }),
+    });
+    const baseWf = makeWorkflow([
+      { id: "n", integration: "stub", operation: "setA", config: {}, onError: "fail" },
+    ]);
+    const wfA = { ...baseWf, id: "wf-A" };
+    const wfB = {
+      ...makeWorkflow([
+        { id: "n", integration: "stub", operation: "readB", config: {}, onError: "fail" },
+      ]),
+      id: "wf-B",
+    };
+
+    const r1 = q.enqueue("wf-A");
+    q.claim();
+    await exec.run(wfA, r1, {});
+
+    const r2 = q.enqueue("wf-B");
+    q.claim();
+    const res = await exec.run(wfB, r2, {});
+    const out = JSON.parse(res.steps[0]!.output ?? "null") as { val: unknown };
+    expect(out.val).toBeNull(); // wf-B can't see wf-A's memory
+    db.close();
+  });
+
+  it("scopes by user_id (from triggerPayload.userId): different users isolated", async () => {
+    const db = openDatabase(":memory:");
+    const q = new RunQueue(db);
+
+    const mod = makeCtxIntegration("stub", {
+      dump: async (_input, ctx) => {
+        const step = (ctx as OperationContext & {
+          step: import("./executor.js").StepContext;
+        }).step;
+        await step.memory.set("prefs", { theme: "dark" });
+        return { ok: true };
+      },
+      read: async (_input, ctx) => {
+        const step = (ctx as OperationContext & {
+          step: import("./executor.js").StepContext;
+        }).step;
+        return { val: await step.memory.get("prefs") };
+      },
+    });
+    const exec = new Executor({
+      db,
+      integrationLoader: makeLoader({ stub: mod }),
+    });
+    const writer = {
+      ...makeWorkflow([
+        { id: "n", integration: "stub", operation: "dump", config: {}, onError: "fail" },
+      ]),
+      id: "wf-users",
+    };
+    const reader = {
+      ...makeWorkflow([
+        { id: "n", integration: "stub", operation: "read", config: {}, onError: "fail" },
+      ]),
+      id: "wf-users",
+    };
+
+    // User A writes.
+    const r1 = q.enqueue("wf-users");
+    q.claim();
+    await exec.run(writer, r1, { userId: "user-a" });
+
+    // User B reads — should see nothing because user-a's row is scoped.
+    const r2 = q.enqueue("wf-users");
+    q.claim();
+    const resB = await exec.run(reader, r2, { userId: "user-b" });
+    const outB = JSON.parse(resB.steps[0]!.output ?? "null") as { val: unknown };
+    expect(outB.val).toBeNull();
+
+    // User A reads — should see its own row.
+    const r3 = q.enqueue("wf-users");
+    q.claim();
+    const resA = await exec.run(reader, r3, { userId: "user-a" });
+    const outA = JSON.parse(resA.steps[0]!.output ?? "null") as { val: { theme: string } };
+    expect(outA.val?.theme).toBe("dark");
+    db.close();
+  });
+
+  it("memory.get/set are memoized per-run (replay short-circuits re-execution)", async () => {
+    // This test exercises the durability contract: if a handler calls
+    // set() inside a step that's later retried/replayed, the write is
+    // recorded once and NOT reapplied — the memoized step-output (null)
+    // short-circuits the handler re-invocation.
+    const db = openDatabase(":memory:");
+    const q = new RunQueue(db);
+    const runId = q.enqueue("wf-mem");
+    q.claim();
+
+    let setCalls = 0;
+    const mod = makeCtxIntegration("stub", {
+      write: async (_input, ctx) => {
+        const step = (ctx as OperationContext & {
+          step: import("./executor.js").StepContext;
+        }).step;
+        await step.memory.set("k", ++setCalls);
+        return { done: true };
+      },
+    });
+    const exec = new Executor({
+      db,
+      integrationLoader: makeLoader({ stub: mod }),
+    });
+    const workflow = makeWorkflow([
+      { id: "n", integration: "stub", operation: "write", config: {}, onError: "fail" },
+    ]);
+
+    await exec.run(workflow, runId, {});
+    expect(setCalls).toBe(1);
+
+    // Replay: node "n" is memoized as success, so the handler doesn't
+    // re-execute at all. setCalls must still be 1.
+    await exec.run(workflow, runId, {});
+    expect(setCalls).toBe(1);
+    db.close();
+  });
+
+  it("accepts JSON-safe values: objects, arrays, numbers, booleans, null", async () => {
+    const db = openDatabase(":memory:");
+    const q = new RunQueue(db);
+    const runId = q.enqueue("wf-mem");
+    q.claim();
+
+    let observedObj: unknown;
+    let observedArr: unknown;
+    let observedNum: unknown;
+    let observedBool: unknown;
+    let observedNull: unknown;
+    const mod = makeCtxIntegration("stub", {
+      types: async (_input, ctx) => {
+        const step = (ctx as OperationContext & {
+          step: import("./executor.js").StepContext;
+        }).step;
+        await step.memory.set("obj", { a: 1, b: "two" });
+        await step.memory.set("arr", [1, 2, 3]);
+        await step.memory.set("num", 42);
+        await step.memory.set("bool", true);
+        await step.memory.set("null", null);
+        observedObj = await step.memory.get("obj");
+        observedArr = await step.memory.get("arr");
+        observedNum = await step.memory.get("num");
+        observedBool = await step.memory.get("bool");
+        observedNull = await step.memory.get("null");
+        return { ok: true };
+      },
+    });
+    const exec = new Executor({
+      db,
+      integrationLoader: makeLoader({ stub: mod }),
+    });
+    const workflow = makeWorkflow([
+      { id: "n", integration: "stub", operation: "types", config: {}, onError: "fail" },
+    ]);
+    await exec.run(workflow, runId, {});
+    expect(observedObj).toEqual({ a: 1, b: "two" });
+    expect(observedArr).toEqual([1, 2, 3]);
+    expect(observedNum).toBe(42);
+    expect(observedBool).toBe(true);
+    expect(observedNull).toBeNull();
+    db.close();
+  });
+
+  it("falls back to workflow-global scope when triggerPayload has no userId", async () => {
+    const db = openDatabase(":memory:");
+    const q = new RunQueue(db);
+
+    const mod = makeCtxIntegration("stub", {
+      write: async (_input, ctx) => {
+        const step = (ctx as OperationContext & {
+          step: import("./executor.js").StepContext;
+        }).step;
+        await step.memory.set("k", "global");
+        return { ok: true };
+      },
+      read: async (_input, ctx) => {
+        const step = (ctx as OperationContext & {
+          step: import("./executor.js").StepContext;
+        }).step;
+        return { val: await step.memory.get("k") };
+      },
+    });
+    const exec = new Executor({
+      db,
+      integrationLoader: makeLoader({ stub: mod }),
+    });
+    const writer = {
+      ...makeWorkflow([
+        { id: "n", integration: "stub", operation: "write", config: {}, onError: "fail" },
+      ]),
+      id: "wf-nou",
+    };
+    const reader = {
+      ...makeWorkflow([
+        { id: "n", integration: "stub", operation: "read", config: {}, onError: "fail" },
+      ]),
+      id: "wf-nou",
+    };
+    const r1 = q.enqueue("wf-nou");
+    q.claim();
+    await exec.run(writer, r1, {}); // no userId → null scope
+    const r2 = q.enqueue("wf-nou");
+    q.claim();
+    const res = await exec.run(reader, r2, {}); // no userId → same null scope
+    const out = JSON.parse(res.steps[0]!.output ?? "null") as { val: unknown };
+    expect(out.val).toBe("global");
+    db.close();
+  });
+});
