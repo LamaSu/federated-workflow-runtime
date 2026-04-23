@@ -4,6 +4,7 @@
  *
  * Subcommands (see ARCHITECTURE §9):
  *   chorus init
+ *   chorus compose "<natural-language prompt>"
  *   chorus run [workflow]
  *   chorus report [--json]
  *   chorus patch <list|apply|propose|revoke>
@@ -24,6 +25,7 @@ import { runRun } from "./commands/run.js";
 import { runReport } from "./commands/report.js";
 import { runValidate } from "./commands/validate.js";
 import { runUi } from "./commands/ui.js";
+import { composeCommand } from "./commands/compose.js";
 import {
   runPatchCommand,
   type PatchAction,
@@ -147,6 +149,35 @@ export function buildProgram(): Command {
       });
       process.exit(code);
     });
+
+  // ── compose ───────────────────────────────────────────────────────────────
+  program
+    .command("compose <prompt>")
+    .description(
+      "describe a workflow in natural language; emit a typed TS file to ./chorus/",
+    )
+    .option(
+      "--max-attempts <n>",
+      "Ralph-loop retries when the model's output fails Zod validation",
+      (v) => Number.parseInt(v, 10),
+      3,
+    )
+    .option(
+      "--slug <slug>",
+      "override the output filename slug (defaults to slugified workflow name)",
+    )
+    .action(
+      async (
+        prompt: string,
+        opts: { maxAttempts?: number; slug?: string },
+      ) => {
+        const code = await composeCommand(prompt, {
+          maxAttempts: opts.maxAttempts,
+          slug: opts.slug,
+        });
+        process.exit(code);
+      },
+    );
 
   // ── validate ──────────────────────────────────────────────────────────────
   program
