@@ -13,6 +13,11 @@ import { WaitForEventCallSchema } from "@delightfulchorus/core";
 import type { DatabaseType, StepRow } from "./db.js";
 import { QueryHelpers } from "./db.js";
 import { TIMEOUT_EVENT_ID } from "./triggers/event.js";
+import {
+  askUserEventType,
+  buildAskUserDescriptor,
+  type AskUserSchema,
+} from "./schema-validate.js";
 import { evalWhen } from "./when-eval.js";
 
 /**
@@ -77,6 +82,19 @@ export interface ExecutorResult {
    */
   waitingOn?: { stepName: string; eventType: string };
 }
+
+/**
+ * Optional knobs for `step.askUser`. Today only `timeoutMs` is meaningful;
+ * exposed as an object so future fields (`prompt-format` hints, etc.) don't
+ * change the call shape.
+ *
+ * Default timeout is 24h (vs waitForEvent's 60s) — humans are slow.
+ */
+export interface AskUserOpts {
+  timeoutMs?: number;
+}
+
+export const ASK_USER_DEFAULT_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Result payload returned by `step.waitForEvent` on success.
@@ -153,6 +171,30 @@ export interface StepContext {
    *   - Replay with still-pending row → suspends again.
    */
   waitForEvent(stepName: string, call: WaitForEventCall): Promise<WaitForEventResult>;
+  /**
+   * Durable HITL (human-in-the-loop) interrupt. The handler asks the user a
+   * question, the run parks until the user answers via the gateway's
+   *   POST /ask/<runId>/<stepName>
+   * webhook (validated against the supplied schema), then returns the
+   * validated answer. Survives process restarts via the same waiting_steps
+   * machinery that backs `waitForEvent`.
+   *
+   * Replay semantics:
+   *   - First call writes a waiting_steps row whose match_payload carries
+   *     an AskUserDescriptor (prompt + serialized schema). The run suspends.
+   *   - The webhook validates the inbound answer against the persisted
+   *     descriptor (via parseAskUserDescriptor + validateAgainstSchema),
+   *     then emits a synthetic `chorus.askUser:<runId>:<stepName>` event
+   *     whose payload is `{ answer: <validated> }`. The dispatcher's
+   *     unique-event-type guarantee routes the event to exactly this row.
+   *   - Replay → resolved row → `step.askUser` returns the validated answer.
+   *   - Replay during park → suspends again (deterministic).
+   *   - Timeout → throws WaitForEventTimeoutError, same as waitForEvent.
+   *
+   * The gateway never invokes the handler directly; we ride waitForEvent
+   * because it already gets the durability story right.
+   */
+  askUser(stepName: string, prompt: string, schema: AskUserSchema, opts?: AskUserOpts): Promise<unknown>;
   /**
    * Per-workflow (optionally per-user) durable KV store.
    *
@@ -411,6 +453,50 @@ export class Executor {
 
         // 4. Suspend — throw a control-flow signal the outer run() catches.
         throw new SuspendForEvent(name, call.eventType);
+      },
+
+      askUser: async (
+        name: string,
+        prompt: string,
+        schema: AskUserSchema,
+        opts?: AskUserOpts,
+      ): Promise<unknown> => {
+        // The webhook handler reads the descriptor back from the
+        // waiting_steps row's match_payload column, validates the answer
+        // against it, and emits the synthetic event below. Storing the
+        // descriptor in match_payload (vs a sidecar table) keeps everything
+        // durable in the row that already has to exist for waitForEvent.
+        const descriptor = buildAskUserDescriptor(prompt, schema);
+        const eventType = askUserEventType(runId, name);
+        const timeoutMs = opts?.timeoutMs ?? ASK_USER_DEFAULT_TIMEOUT_MS;
+
+        // Delegate to step.waitForEvent — same memoization, same parking,
+        // same restart-survival. The descriptor rides as matchPayload; the
+        // dispatcher's askUser-aware match path (in waitingStepMatches)
+        // bypasses the filter check because the unique event type already
+        // pins this event to this (runId, stepName) pair.
+        const result = await step.waitForEvent(name, {
+          eventType,
+          // matchPayload type is Record<string, unknown> — the descriptor
+          // is structurally compatible.
+          matchPayload: descriptor as unknown as Record<string, unknown>,
+          timeoutMs,
+        });
+
+        // The webhook emits `{ answer: <validated value> }`. Unwrap.
+        const payload = result.event.payload;
+        if (
+          payload &&
+          typeof payload === "object" &&
+          !Array.isArray(payload) &&
+          "answer" in (payload as Record<string, unknown>)
+        ) {
+          return (payload as Record<string, unknown>)["answer"];
+        }
+        // Defensive — the webhook always wraps in {answer}, but if a test
+        // bypasses the gateway and emits a raw event we return the payload
+        // unchanged rather than crash.
+        return payload;
       },
 
       memory: {

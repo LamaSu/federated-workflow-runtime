@@ -3,6 +3,7 @@ import type { EventTrigger } from "@delightfulchorus/core";
 import type { RunQueue } from "../queue.js";
 import type { DatabaseType, EventRow, WaitingStepRow } from "../db.js";
 import { QueryHelpers } from "../db.js";
+import { parseAskUserDescriptor } from "../schema-validate.js";
 
 /**
  * Event trigger + dispatch per ROADMAP §6.
@@ -230,6 +231,14 @@ export class EventDispatcher {
     payload: unknown,
     correlationId: string | null,
   ): boolean {
+    // askUser rows store an AskUserDescriptor in match_payload, not a
+    // payload filter. The unique synthetic event type
+    // ("chorus.askUser:<runId>:<stepName>") already pins each event to
+    // exactly one waiting step, so we skip filter matching for those rows.
+    // Correlation id is also unused for askUser.
+    if (parseAskUserDescriptor(w.match_payload) !== null) {
+      return w.event_type === eventType;
+    }
     let filter: Record<string, unknown> | null = null;
     if (w.match_payload) {
       filter = safeParseJson(w.match_payload) as Record<string, unknown> | null;

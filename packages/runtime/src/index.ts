@@ -64,10 +64,12 @@ export {
 } from "./sandbox.js";
 
 export {
+  ASK_USER_DEFAULT_TIMEOUT_MS,
   DEFAULT_RETRY,
   Executor,
   WaitForEventTimeoutError,
   computeBackoff,
+  type AskUserOpts,
   type ExecutorOptions,
   type ExecutorResult,
   type IntegrationLoader,
@@ -75,6 +77,25 @@ export {
   type StepContext,
   type WaitForEventResult,
 } from "./executor.js";
+
+export {
+  registerAskRoutes,
+  type RegisterAskRoutesOptions,
+} from "./ask-routes.js";
+
+export {
+  askUserEventType,
+  buildAskUserDescriptor,
+  isZodSchema,
+  parseAskUserDescriptor,
+  validateAgainstSchema,
+  type AskUserDescriptor,
+  type AskUserSchema,
+  type JsonSchemaLite,
+  type ValidateResult,
+  type ValidateOk,
+  type ValidateErr,
+} from "./schema-validate.js";
 
 export {
   EventDispatcher,

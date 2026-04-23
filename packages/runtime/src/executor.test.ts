@@ -774,6 +774,445 @@ describe("Executor — step.waitForEvent (durable wait primitive)", () => {
   });
 });
 
+// ─── step.askUser: durable HITL primitive ──────────────────────────────────
+//
+// step.askUser builds on step.waitForEvent — these tests verify the
+// askUser-specific glue (descriptor persistence, answer unwrapping,
+// validation handoff to the webhook) without re-testing the underlying
+// memoization (already covered by the waitForEvent block above).
+
+describe("Executor — step.askUser (durable HITL)", () => {
+  it("first pass: persists an AskUserDescriptor in match_payload + suspends", async () => {
+    const { z } = await import("zod");
+    const { parseAskUserDescriptor, askUserEventType } = await import(
+      "./schema-validate.js"
+    );
+
+    const db = openDatabase(":memory:");
+    const q = new RunQueue(db);
+    const runId = q.enqueue("wf-ask");
+    q.claim();
+
+    const mod = makeCtxIntegration("stub", {
+      pickSize: async (_input, ctx) => {
+        const step = (ctx as OperationContext & {
+          step: import("./executor.js").StepContext;
+        }).step;
+        return await step.askUser(
+          "ask-size",
+          "Pick a size",
+          z.object({ size: z.enum(["S", "M", "L"]) }),
+        );
+      },
+    });
+    const exec = new Executor({
+      db,
+      integrationLoader: makeLoader({ stub: mod }),
+      now: () => new Date("2026-04-22T00:00:00.000Z"),
+    });
+    const workflow = makeWorkflow([
+      { id: "n-ask", integration: "stub", operation: "pickSize", config: {}, onError: "fail" },
+    ]);
+
+    const r = await exec.run(workflow, runId, {});
+    expect(r.status).toBe("waiting");
+    expect(r.waitingOn?.eventType).toBe(askUserEventType(runId, "ask-size"));
+
+    const row = db
+      .prepare(`SELECT * FROM waiting_steps WHERE run_id = ?`)
+      .get(runId) as { match_payload: string; event_type: string };
+    expect(row.event_type).toBe(askUserEventType(runId, "ask-size"));
+    const desc = parseAskUserDescriptor(row.match_payload);
+    expect(desc?.kind).toBe("askUser");
+    expect(desc?.prompt).toBe("Pick a size");
+    expect(desc?.schema.kind).toBe("zod-runtime");
+    db.close();
+  });
+
+  it("happy path via webhook: emits, resolves, replay returns the answer", async () => {
+    // End-to-end flow: handler parks → webhook resumes → handler returns.
+    const Fastify = (await import("fastify")).default;
+    const { registerAskRoutes } = await import("./ask-routes.js");
+    const { EventDispatcher } = await import("./triggers/event.js");
+
+    const db = openDatabase(":memory:");
+    const q = new RunQueue(db);
+    const runId = q.enqueue("wf-ask");
+    q.claim();
+
+    let returned: unknown = undefined;
+    const mod = makeCtxIntegration("stub", {
+      pickSize: async (_input, ctx) => {
+        const step = (ctx as OperationContext & {
+          step: import("./executor.js").StepContext;
+        }).step;
+        const answer = await step.askUser("ask-size", "Pick", {
+          type: "string",
+          enum: ["S", "M", "L"],
+        });
+        returned = answer;
+        return { ok: true, answer };
+      },
+    });
+    const exec = new Executor({
+      db,
+      integrationLoader: makeLoader({ stub: mod }),
+      now: () => new Date("2026-04-22T00:00:00.000Z"),
+    });
+    const workflow = makeWorkflow([
+      { id: "n-ask", integration: "stub", operation: "pickSize", config: {}, onError: "fail" },
+    ]);
+
+    // First pass — suspend.
+    const first = await exec.run(workflow, runId, {});
+    expect(first.status).toBe("waiting");
+
+    // Stand up a fastify with the ask route + a real dispatcher tied to
+    // the same db & queue.
+    const dispatcher = new EventDispatcher({ queue: q, db });
+    const app = Fastify({ logger: false });
+    registerAskRoutes(app, db, { dispatcher });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/ask/${runId}/ask-size`,
+      payload: { answer: "M" },
+    });
+    expect(res.statusCode).toBe(202);
+    await app.close();
+
+    // Replay — handler runs again; askUser returns "M" without re-parking.
+    q.claim();
+    const second = await exec.run(workflow, runId, {});
+    expect(second.status).toBe("success");
+    expect(returned).toBe("M");
+    const node = second.steps.find((s) => s.step_name === "n-ask");
+    const out = JSON.parse(node!.output ?? "null") as { ok: boolean; answer: string };
+    expect(out.answer).toBe("M");
+    db.close();
+  });
+
+  it("schema mismatch from the webhook does NOT resolve the row, replay still parks", async () => {
+    const Fastify = (await import("fastify")).default;
+    const { registerAskRoutes } = await import("./ask-routes.js");
+    const { EventDispatcher } = await import("./triggers/event.js");
+
+    const db = openDatabase(":memory:");
+    const q = new RunQueue(db);
+    const runId = q.enqueue("wf-ask");
+    q.claim();
+
+    const mod = makeCtxIntegration("stub", {
+      pickSize: async (_input, ctx) => {
+        const step = (ctx as OperationContext & {
+          step: import("./executor.js").StepContext;
+        }).step;
+        return await step.askUser("ask", "Pick", {
+          type: "string",
+          enum: ["S", "M", "L"],
+        });
+      },
+    });
+    const exec = new Executor({
+      db,
+      integrationLoader: makeLoader({ stub: mod }),
+      now: () => new Date("2026-04-22T00:00:00.000Z"),
+    });
+    const workflow = makeWorkflow([
+      { id: "n-ask", integration: "stub", operation: "pickSize", config: {}, onError: "fail" },
+    ]);
+
+    const first = await exec.run(workflow, runId, {});
+    expect(first.status).toBe("waiting");
+
+    const dispatcher = new EventDispatcher({ queue: q, db });
+    const app = Fastify({ logger: false });
+    registerAskRoutes(app, db, { dispatcher });
+
+    // Bad answer.
+    const bad = await app.inject({
+      method: "POST",
+      url: `/ask/${runId}/ask`,
+      payload: { answer: "XL" },
+    });
+    expect(bad.statusCode).toBe(400);
+    await app.close();
+
+    // Replay — still suspended.
+    q.claim();
+    const second = await exec.run(workflow, runId, {});
+    expect(second.status).toBe("waiting");
+
+    const w = db
+      .prepare(`SELECT * FROM waiting_steps WHERE run_id = ?`)
+      .get(runId) as { resolved_at: string | null };
+    expect(w.resolved_at).toBeNull();
+    db.close();
+  });
+
+  it("memoization: replay during park does not duplicate the descriptor row (RULE 13)", async () => {
+    const db = openDatabase(":memory:");
+    const q = new RunQueue(db);
+    const runId = q.enqueue("wf-ask");
+    q.claim();
+
+    const mod = makeCtxIntegration("stub", {
+      pickSize: async (_input, ctx) => {
+        const step = (ctx as OperationContext & {
+          step: import("./executor.js").StepContext;
+        }).step;
+        return await step.askUser("ask", "Q", { type: "string" });
+      },
+    });
+    const exec = new Executor({
+      db,
+      integrationLoader: makeLoader({ stub: mod }),
+      now: () => new Date("2026-04-22T00:00:00.000Z"),
+    });
+    const workflow = makeWorkflow([
+      { id: "n-ask", integration: "stub", operation: "pickSize", config: {}, onError: "fail" },
+    ]);
+
+    await exec.run(workflow, runId, {});
+    q.claim();
+    await exec.run(workflow, runId, {});
+    q.claim();
+    await exec.run(workflow, runId, {});
+
+    const count = db
+      .prepare(`SELECT COUNT(*) AS c FROM waiting_steps WHERE run_id = ?`)
+      .get(runId) as { c: number };
+    expect(count.c).toBe(1);
+    db.close();
+  });
+
+  it("times out cleanly — subsequent run() throws WaitForEventTimeoutError (default 24h, override to 1s)", async () => {
+    const { EventDispatcher } = await import("./triggers/event.js");
+    const db = openDatabase(":memory:");
+    const q = new RunQueue(db);
+    const runId = q.enqueue("wf-ask");
+    q.claim();
+
+    const mod = makeCtxIntegration("stub", {
+      pickSize: async (_input, ctx) => {
+        const step = (ctx as OperationContext & {
+          step: import("./executor.js").StepContext;
+        }).step;
+        return await step.askUser("ask", "Q", { type: "string" }, { timeoutMs: 1000 });
+      },
+    });
+    const exec = new Executor({
+      db,
+      integrationLoader: makeLoader({ stub: mod }),
+      now: () => new Date("2026-04-22T00:00:00.000Z"),
+    });
+    const workflow = makeWorkflow([
+      { id: "n-ask", integration: "stub", operation: "pickSize", config: {}, onError: "fail" },
+    ]);
+
+    const first = await exec.run(workflow, runId, {});
+    expect(first.status).toBe("waiting");
+
+    // Advance clock past the deadline using the dispatcher.
+    const dispatcher = new EventDispatcher({
+      queue: q,
+      db,
+      now: () => new Date("2026-04-22T00:05:00.000Z"),
+    });
+    const expired = dispatcher.expireWaitingSteps();
+    expect(expired).toHaveLength(1);
+
+    q.claim();
+    const second = await exec.run(workflow, runId, {});
+    expect(second.status).toBe("failed");
+    expect(second.error).toMatch(/timed out/i);
+    db.close();
+  });
+
+  it("CRITICAL restart-during-park: new Executor instance + new DB handle resumes from webhook answer", async () => {
+    // Mirror the existing waitForEvent restart test, but with askUser.
+    const path = await import("node:path");
+    const os = await import("node:os");
+    const fs = await import("node:fs/promises");
+    const crypto = await import("node:crypto");
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "chorus-askU-"));
+    const dbPath = path.join(tmp, "chorus.db");
+
+    // Phase A: handler suspends.
+    let runId = "";
+    {
+      const dbA = openDatabase(dbPath);
+      const qA = new RunQueue(dbA);
+      runId = "run-restart-" + crypto.randomUUID();
+      qA.enqueue("wf-restart", { id: runId });
+      qA.claim();
+
+      const mod = makeCtxIntegration("stub", {
+        pickColor: async (_input, ctx) => {
+          const step = (ctx as OperationContext & {
+            step: import("./executor.js").StepContext;
+          }).step;
+          return await step.askUser("ask-color", "Color?", {
+            type: "string",
+            enum: ["red", "green", "blue"],
+          });
+        },
+      });
+      const execA = new Executor({
+        db: dbA,
+        integrationLoader: makeLoader({ stub: mod }),
+        now: () => new Date("2026-04-22T00:00:00.000Z"),
+      });
+      const wf = makeWorkflow([
+        { id: "n", integration: "stub", operation: "pickColor", config: {}, onError: "fail" },
+      ]);
+      const r = await execA.run(wf, runId, {});
+      expect(r.status).toBe("waiting");
+      dbA.close();
+    }
+
+    // Phase B: new process — fresh DB handle, fresh server, webhook arrives,
+    // new executor instance replays.
+    {
+      const Fastify = (await import("fastify")).default;
+      const { registerAskRoutes } = await import("./ask-routes.js");
+      const { EventDispatcher } = await import("./triggers/event.js");
+
+      const dbB = openDatabase(dbPath);
+      const qB = new RunQueue(dbB);
+      const dispatcher = new EventDispatcher({
+        queue: qB,
+        db: dbB,
+        now: () => new Date("2026-04-22T00:01:00.000Z"),
+      });
+      const app = Fastify({ logger: false });
+      registerAskRoutes(app, dbB, { dispatcher });
+
+      const webhook = await app.inject({
+        method: "POST",
+        url: `/ask/${runId}/ask-color`,
+        payload: { answer: "blue" },
+      });
+      expect(webhook.statusCode).toBe(202);
+      await app.close();
+
+      const mod = makeCtxIntegration("stub", {
+        pickColor: async (_input, ctx) => {
+          const step = (ctx as OperationContext & {
+            step: import("./executor.js").StepContext;
+          }).step;
+          return await step.askUser("ask-color", "Color?", {
+            type: "string",
+            enum: ["red", "green", "blue"],
+          });
+        },
+      });
+      const execB = new Executor({
+        db: dbB,
+        integrationLoader: makeLoader({ stub: mod }),
+        now: () => new Date("2026-04-22T00:01:00.000Z"),
+      });
+      const wf = makeWorkflow([
+        { id: "n", integration: "stub", operation: "pickColor", config: {}, onError: "fail" },
+      ]);
+      qB.claim();
+      const r = await execB.run(wf, runId, {});
+      expect(r.status).toBe("success");
+      const node = r.steps.find((s) => s.step_name === "n");
+      const out = JSON.parse(node!.output ?? "null") as string;
+      expect(out).toBe("blue");
+      dbB.close();
+    }
+
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  it("two parallel asks in one workflow do not cross-talk (unique event types)", async () => {
+    const Fastify = (await import("fastify")).default;
+    const { registerAskRoutes } = await import("./ask-routes.js");
+    const { EventDispatcher } = await import("./triggers/event.js");
+
+    const db = openDatabase(":memory:");
+    const q = new RunQueue(db);
+    const runId = q.enqueue("wf-2-asks");
+    q.claim();
+
+    let collected: { color?: string; size?: string } = {};
+    const mod = makeCtxIntegration("stub", {
+      pickColor: async (_input, ctx) => {
+        const step = (ctx as OperationContext & {
+          step: import("./executor.js").StepContext;
+        }).step;
+        const color = await step.askUser("ask-color", "Color?", {
+          type: "string",
+          enum: ["red", "green", "blue"],
+        });
+        collected.color = color as string;
+        return { color };
+      },
+      pickSize: async (_input, ctx) => {
+        const step = (ctx as OperationContext & {
+          step: import("./executor.js").StepContext;
+        }).step;
+        const size = await step.askUser("ask-size", "Size?", {
+          type: "string",
+          enum: ["S", "M", "L"],
+        });
+        collected.size = size as string;
+        return { size };
+      },
+    });
+    const exec = new Executor({
+      db,
+      integrationLoader: makeLoader({ stub: mod }),
+      now: () => new Date("2026-04-22T00:00:00.000Z"),
+    });
+    const workflow = makeWorkflow([
+      { id: "color", integration: "stub", operation: "pickColor", config: {}, onError: "fail" },
+      { id: "size", integration: "stub", operation: "pickSize", config: {}, onError: "fail" },
+    ]);
+
+    // First pass: parks on the FIRST ask (executor walks nodes in order).
+    const first = await exec.run(workflow, runId, {});
+    expect(first.status).toBe("waiting");
+    expect(first.waitingOn?.stepName).toBe("ask-color");
+
+    // Answer color first.
+    const dispatcher = new EventDispatcher({ queue: q, db });
+    const app = Fastify({ logger: false });
+    registerAskRoutes(app, db, { dispatcher });
+    const r1 = await app.inject({
+      method: "POST",
+      url: `/ask/${runId}/ask-color`,
+      payload: { answer: "blue" },
+    });
+    expect(r1.statusCode).toBe(202);
+
+    // Replay — first node memoized, second now parks.
+    q.claim();
+    const second = await exec.run(workflow, runId, {});
+    expect(second.status).toBe("waiting");
+    expect(second.waitingOn?.stepName).toBe("ask-size");
+
+    // Answer size — the unique event type means color row is unaffected.
+    const r2 = await app.inject({
+      method: "POST",
+      url: `/ask/${runId}/ask-size`,
+      payload: { answer: "M" },
+    });
+    expect(r2.statusCode).toBe(202);
+    await app.close();
+
+    // Replay — both memoized, success.
+    q.claim();
+    const third = await exec.run(workflow, runId, {});
+    expect(third.status).toBe("success");
+    expect(collected.color).toBe("blue");
+    expect(collected.size).toBe("M");
+    db.close();
+  });
+});
+
 // ─── Connection.when? conditional routing ──────────────────────────────────
 //
 // A Connection may carry a jexl-style expression in `when?`. Before the
