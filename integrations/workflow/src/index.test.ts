@@ -210,6 +210,32 @@ describe("resolveInvocationParams", () => {
       ).inputMapping,
     ).toEqual({ c: "d" });
   });
+
+  it("accepts case-insensitive variants (FBP round-trip lowercases)", () => {
+    expect(
+      resolveInvocationParams(
+        { workflowid: "x" } as unknown as { workflowId: string },
+        undefined,
+      ),
+    ).toEqual({ workflowId: "x" });
+    expect(
+      resolveInvocationParams(
+        { WORKFLOWID: "x" } as unknown as { workflowId: string },
+        undefined,
+      ),
+    ).toEqual({ workflowId: "x" });
+  });
+
+  it("accepts inputMapping as a JSON string (FBP round-trip serializes objects as strings)", () => {
+    const r = resolveInvocationParams(
+      {
+        workflowId: "x",
+        inputmapping: '{"dest":"src"}',
+      } as unknown as { workflowId: string },
+      undefined,
+    );
+    expect(r.inputMapping).toEqual({ dest: "src" });
+  });
 });
 
 // ── applyInputMapping ─────────────────────────────────────────────────────

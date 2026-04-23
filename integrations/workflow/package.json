@@ -44,5 +44,8 @@
   "dependencies": {
     "@delightfulchorus/core": "*",
     "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@delightfulchorus/fbp": "*"
   }
 }

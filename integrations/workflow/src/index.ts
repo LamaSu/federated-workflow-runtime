@@ -225,6 +225,12 @@ function extractRunner(ctx: OperationContext): SubgraphRunner {
  * keeps the spec form (`config.workflowId`) ergonomic AND preserves the FBP
  * IIP form (`inputs.workflowId`) so round-trips are lossless.
  *
+ * Lookup is CASE-INSENSITIVE on the key name: the FBP adapter lowercases
+ * port names through round-trip (`WORKFLOWID -> workflowid`), so authors
+ * who go through `.fbp` storage end up with lowercased keys in their input
+ * object. Accepting both `workflowId` and `workflowid` (and `WORKFLOWID`)
+ * keeps the round-trip lossless from the handler's POV.
+ *
  * Also splits an optional `@version` suffix out of the workflowId — `"foo@2"`
  * resolves to `{ id: "foo", version: 2 }`. Bare `"foo"` resolves to
  * `{ id: "foo" }` (latest version).
@@ -237,12 +243,8 @@ export function resolveInvocationParams(
   version?: number;
   inputMapping?: Record<string, string>;
 } {
-  const rawId =
-    typeof input.workflowId === "string"
-      ? input.workflowId
-      : typeof config?.["workflowId"] === "string"
-        ? (config["workflowId"] as string)
-        : undefined;
+  const rawId = caseInsensitiveString(input, "workflowId") ??
+    (config !== undefined ? caseInsensitiveString(config, "workflowId") : undefined);
   if (!rawId || rawId.length === 0) {
     throw new IntegrationError({
       message:
@@ -269,10 +271,69 @@ export function resolveInvocationParams(
   }
 
   const inputMapping =
-    input.inputMapping ??
-    (config?.["inputMapping"] as Record<string, string> | undefined);
+    caseInsensitiveRecord(input as Record<string, unknown>, "inputMapping") ??
+    (config !== undefined
+      ? caseInsensitiveRecord(config, "inputMapping")
+      : undefined);
 
   return { workflowId, version, inputMapping };
+}
+
+/**
+ * Case-insensitive string lookup against a record. Returns the first
+ * matching value whose key (compared lowercased) matches `name` lowercased.
+ * Used to tolerate FBP's round-trip lowercasing of port names.
+ */
+function caseInsensitiveString(
+  record: Record<string, unknown> | undefined,
+  name: string,
+): string | undefined {
+  if (!record) return undefined;
+  const target = name.toLowerCase();
+  for (const [k, v] of Object.entries(record)) {
+    if (k.toLowerCase() === target && typeof v === "string") return v;
+  }
+  return undefined;
+}
+
+function caseInsensitiveRecord(
+  record: Record<string, unknown> | undefined,
+  name: string,
+): Record<string, string> | undefined {
+  if (!record) return undefined;
+  const target = name.toLowerCase();
+  for (const [k, v] of Object.entries(record)) {
+    if (k.toLowerCase() !== target) continue;
+    // Native object form (the canonical case).
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      const obj = v as Record<string, unknown>;
+      const out: Record<string, string> = {};
+      for (const [kk, vv] of Object.entries(obj)) {
+        if (typeof vv === "string") out[kk] = vv;
+      }
+      return out;
+    }
+    // FBP round-trip form: objects come back as JSON strings (the
+    // emitter wraps them in single quotes, so they parse as strings).
+    // Try to parse — if it's valid JSON producing an object of strings,
+    // accept it.
+    if (typeof v === "string" && v.length > 0) {
+      try {
+        const parsed = JSON.parse(v);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          const obj = parsed as Record<string, unknown>;
+          const out: Record<string, string> = {};
+          for (const [kk, vv] of Object.entries(obj)) {
+            if (typeof vv === "string") out[kk] = vv;
+          }
+          return out;
+        }
+      } catch {
+        // Fall through — string didn't parse as JSON; ignore.
+      }
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -301,15 +362,15 @@ export function applyInputMapping(
   mapping: Record<string, string> | undefined,
 ): unknown {
   if (!mapping || Object.keys(mapping).length === 0) {
-    // Strip our own bookkeeping fields, return the rest.
-    const { workflowId: _wf, inputMapping: _im, ...rest } = parentInput as {
-      workflowId?: unknown;
-      inputMapping?: unknown;
-      [k: string]: unknown;
-    };
-    void _wf;
-    void _im;
-    return rest;
+    // Strip our own bookkeeping fields (case-insensitive — see
+    // resolveInvocationParams for why), return the rest.
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(parentInput)) {
+      const lk = k.toLowerCase();
+      if (lk === "workflowid" || lk === "inputmapping") continue;
+      out[k] = v;
+    }
+    return out;
   }
 
   const out: Record<string, unknown> = {};
