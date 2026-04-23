@@ -213,6 +213,25 @@ export {
   type GenerateDashboardResult,
 } from "./ui-generator.js";
 
+// Functional API decorators (Wave 4 item 13). HOF-form authoring of
+// Workflow JSON; the runtime is unchanged. See decorators.ts for the full
+// design rationale (TC39 Stage 3 vs experimental decorators, why HOFs over
+// `@`-prefix on function declarations, etc.).
+export {
+  chorusWorkflow,
+  chorusStep,
+  chorusConnect,
+  chorusWorkflowClass,
+  chorusStepDecl,
+  clearRegistry,
+  getRegisteredWorkflows,
+  registerWorkflow,
+  type ChorusWorkflowMeta,
+  type StepRef,
+  type StepSpec,
+  type WorkflowBuilder,
+} from "./decorators.js";
+
 export {
   API_VERSION,
   CHORUS_API_MEDIA_TYPE,
