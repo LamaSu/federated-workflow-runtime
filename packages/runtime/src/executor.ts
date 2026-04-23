@@ -699,6 +699,12 @@ export class Executor {
       // opt-in read ctx.step from a cast.
       (ctx as OperationContext & { step: StepContext }).step = stepCtx;
     }
+    // Structural extension — integrations that need to invoke other
+    // integrations (the `agent` integration's tool catalog, for example)
+    // opt-in by reading `ctx.integrationLoader`. Same pattern as ctx.step:
+    // existing handlers ignore the cast; opt-in handlers consume it.
+    (ctx as OperationContext & { integrationLoader: IntegrationLoader }).integrationLoader =
+      this.opts.integrationLoader;
 
     // ── Primary attempt with retry budget ──────────────────────────────
     const primaryResult = await this.tryPrimary(node, triggerPayload, ctx, retryCfg);
@@ -840,6 +846,11 @@ export class Executor {
     if (stepProp) {
       (fbCtx as OperationContext & { step: StepContext }).step = stepProp;
     }
+    // Mirror the integrationLoader attachment — fallbacks should have the
+    // same reach as the primary handler, including agent-style integrations
+    // that need to reach other integrations.
+    (fbCtx as OperationContext & { integrationLoader: IntegrationLoader }).integrationLoader =
+      this.opts.integrationLoader;
     return await handler(input, fbCtx);
   }
 
