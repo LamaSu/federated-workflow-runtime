@@ -11,6 +11,9 @@
  *   chorus ui --prompt   — prints ONLY the prompt template (pipe-friendly)
  *   chorus ui --example  — writes examples/ui/minimal.html into the cwd
  *   chorus ui --serve    — serves examples/ui/minimal.html on a spare port
+ *   chorus ui --editor --workflow <id-or-path>
+ *                        — generate a standalone Drawflow-based editor HTML
+ *                          for an existing workflow. See ui-editor.ts.
  */
 import path from "node:path";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
@@ -18,6 +21,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { fileURLToPath } from "node:url";
 import pc from "picocolors";
 import { loadConfig } from "../config.js";
+import { runUiEditor } from "./ui-editor.js";
 
 export interface UiOptions {
   /** `--prompt`: emit the raw prompt template to stdout only. */
@@ -28,6 +32,20 @@ export interface UiOptions {
   serve?: boolean;
   /** Optional: override the port for `--serve`. */
   servePort?: number;
+  /**
+   * `--editor`: emit a standalone workflow editor HTML for the workflow
+   * identified by `editorWorkflow`. When this is set, the --prompt and
+   * --example / --serve branches are skipped.
+   */
+  editor?: boolean;
+  /** Workflow source for --editor (id, file path, or url). */
+  editorWorkflow?: string;
+  /** Optional aesthetic override for --editor, substituted into {{STYLE}}. */
+  editorStyle?: string;
+  /** Optional natural-language tweak — routes through the LLM generator. */
+  editorPrompt?: string;
+  /** Override the output path for --editor. */
+  editorOut?: string;
   /** Optional: override cwd for tests. */
   cwd?: string;
   /** Optional: override the stdout stream (tests). */
@@ -241,6 +259,31 @@ export async function runUi(opts: UiOptions = {}): Promise<number> {
   const write = (s: string) => out.write(s);
   const color_on = useColor(opts);
 
+  if (opts.editor) {
+    if (!opts.editorWorkflow) {
+      (opts.stdout ?? process.stderr).write(
+        "chorus ui --editor: --workflow <id-or-path> is required\n",
+      );
+      return 1;
+    }
+    try {
+      await runUiEditor({
+        workflow: opts.editorWorkflow,
+        cwd,
+        out: opts.editorOut,
+        style: opts.editorStyle,
+        prompt: opts.editorPrompt,
+        apiBase: await resolveApiBaseUrl(cwd),
+      });
+      return 0;
+    } catch (err) {
+      (opts.stdout ?? process.stderr).write(
+        `chorus ui --editor: ${(err as Error).message}\n`,
+      );
+      return 1;
+    }
+  }
+
   if (opts.prompt) {
     const prompt = await readPrompt();
     write(prompt);
@@ -286,6 +329,9 @@ export async function runUi(opts: UiOptions = {}): Promise<number> {
   write(`${bold("See an example first")}:\n`);
   write(`  ${dim("$")} ${green("chorus ui --example")}  ${dim("# writes examples/ui/minimal.html")}\n`);
   write(`  ${dim("$")} ${green("chorus ui --serve")}    ${dim("# serves it on http://127.0.0.1:3711")}\n\n`);
+  write(`${bold("Edit a workflow visually")}:\n`);
+  write(`  ${dim("$")} ${green("chorus ui --editor --workflow <id-or-path>")} ${dim("# emits editor-<slug>.html")}\n`);
+  write(`  ${dim("$")} ${green("chorus ui --editor --workflow <id> --style 'solarpunk'")} ${dim("# with a style")}\n\n`);
   write(`${bold("Docs")}: docs/UI_GENERATOR.md\n`);
   return 0;
 }

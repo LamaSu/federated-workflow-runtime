@@ -199,18 +199,69 @@ async function fetchWorkflow(url: string, fetchFn?: typeof fetch): Promise<Workf
 }
 
 async function loadWorkflowFromTs(absPath: string): Promise<Workflow> {
-  // tsx is already in the CLI's transitive dev deps; we reuse the same
-  // pattern as chorus compose's test harness — dynamic import via
-  // file:// URL. Works for both .ts (when tsx is the loader) and .js.
-  // eslint-disable-next-line @typescript-eslint/no-implied-eval
-  const dynamicImport = new Function("s", "return import(s)") as (
-    s: string,
-  ) => Promise<unknown>;
-  const mod = (await dynamicImport(pathToFileURL(absPath).href)) as {
-    default?: unknown;
-  };
-  const raw = mod.default ?? mod;
-  return WorkflowSchema.parse(raw);
+  // Native `import()` supports both .js (always) and .ts (when tsx/ts-node
+  // is the loader). For tests and non-tsx environments we fall back to
+  // parsing the TS file with a best-effort JSON extractor: the `chorus
+  // compose` output format has a deterministic shape — a default-exported
+  // `const workflow: Workflow = { ... };` literal — which makes string
+  // extraction tractable without a TypeScript compiler.
+  try {
+    const mod = (await import(pathToFileURL(absPath).href)) as {
+      default?: unknown;
+    };
+    const raw = mod.default ?? mod;
+    return WorkflowSchema.parse(raw);
+  } catch (err) {
+    // Fallback: scrape the default-exported object literal out of the TS
+    // source. Works for the shape emitted by `chorus compose` and the
+    // sample-composed-workflow fixture.
+    if (!absPath.endsWith(".ts")) throw err;
+    const source = await readFile(absPath, "utf8");
+    const jsonText = extractDefaultWorkflowJson(source);
+    if (!jsonText) throw err;
+    return WorkflowSchema.parse(JSON.parse(jsonText));
+  }
+}
+
+/**
+ * Best-effort extraction of the default-exported Workflow literal from a
+ * TypeScript file. Looks for `const <name>: Workflow = { ... }` and pulls
+ * out the balanced brace region. Used when native `import()` can't load
+ * `.ts` files (no tsx loader, or a sandboxed test runtime).
+ */
+export function extractDefaultWorkflowJson(source: string): string | null {
+  const idx = source.search(/const\s+\w+\s*:\s*Workflow\s*=\s*/);
+  if (idx < 0) return null;
+  const start = source.indexOf("{", idx);
+  if (start < 0) return null;
+  let depth = 0;
+  let inStr: string | null = null;
+  let escape = false;
+  for (let i = start; i < source.length; i += 1) {
+    const c = source[i]!;
+    if (inStr) {
+      if (escape) {
+        escape = false;
+      } else if (c === "\\") {
+        escape = true;
+      } else if (c === inStr) {
+        inStr = null;
+      }
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") {
+      inStr = c;
+      continue;
+    }
+    if (c === "{") depth += 1;
+    else if (c === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return source.slice(start, i + 1);
+      }
+    }
+  }
+  return null;
 }
 
 function parseWorkflowJson(raw: string): Workflow {
@@ -431,6 +482,8 @@ function stripCodeFence(s: string): string {
 }
 
 async function loadAiSdk(): Promise<{ generateText: (args: unknown) => Promise<unknown> }> {
+  // Same dynamic-import trick as compose.ts: avoid static type-dep on the
+  // SDK so the CLI still type-checks when `ai` isn't installed yet.
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
   const dynamicImport = new Function("s", "return import(s)") as (
     s: string,
