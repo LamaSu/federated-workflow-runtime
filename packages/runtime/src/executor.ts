@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type {
   IntegrationModule,
   Logger,
@@ -804,11 +804,22 @@ export class Executor {
           continue;
         }
 
-        const output = await step.run(node.id, () =>
-          this.invokeNode(node, triggerPayload, step),
+        // Wave 4 item 14: resolve configurable overrides BEFORE invoking.
+        // The resolution gives us:
+        //   - merged config view (attached to ctx.nodeConfig downstream)
+        //   - the step name to use (suffixed with #cfg=<hash> if overrides
+        //     are active, so the memo row varies with the override set)
+        const resolution = resolveConfigurable(node, triggerPayload);
+        const stepName = configurableStepName(node.id, resolution);
+
+        const output = await step.run(stepName, () =>
+          this.invokeNode(node, triggerPayload, step, resolution.merged),
         );
+        // Track outputs by node.id (NOT stepName) so connection routing —
+        // which references node ids in the workflow definition — keeps
+        // working regardless of override-induced step-name suffixes.
         nodeOutputs.set(node.id, output);
-        const stepRow = this.helpers.getStep(runId, node.id);
+        const stepRow = this.helpers.getStep(runId, stepName);
         if (stepRow) steps.push(stepRow);
         if (output === undefined) continue;
       }
@@ -872,7 +883,36 @@ export class Executor {
     node: WorkflowNode,
     triggerPayload: unknown,
     stepCtx?: StepContext,
+    /**
+     * Wave 4 item 14: pre-resolved merged config (node.config overlaid
+     * with declared `node.configurable` overrides from the trigger
+     * payload). When provided, supersedes `node.config` for the duration
+     * of this invocation — the existing ctx-attachment block (lines below)
+     * sees the merged view because we shallow-clone `node` with `.config`
+     * replaced. When omitted (older callers / tests), behaves identically
+     * to pre-Wave-4 by computing the resolution locally; if no
+     * configurable declaration exists this collapses to `node.config`.
+     */
+    mergedConfig?: Record<string, unknown>,
   ): Promise<unknown> {
+    // If the caller (executor.run) didn't pre-compute the merged config,
+    // do it here. Keeps direct-call test sites working unchanged. The
+    // computation is pure and cheap; the fast path inside resolveConfigurable
+    // returns node.config verbatim when no declaration exists.
+    const effectiveConfig =
+      mergedConfig ?? resolveConfigurable(node, triggerPayload).merged;
+
+    // Shallow-clone the node with `.config` replaced by the merged view so
+    // the ctx-attachment block below — which we deliberately do NOT touch
+    // (Wave 2/3 own those exact lines) — picks up the merged values via
+    // its existing `node.config` read. Other node fields are preserved
+    // by spreading.
+    const nodeForCtx: WorkflowNode = { ...node, config: effectiveConfig };
+    // NB: from this point the local `node` binding is shadowed by `nodeForCtx`
+    // so all downstream reads (ctx-attachment block, retry policy lookup,
+    // tryPrimary, fallback chain) see the merged config consistently.
+    node = nodeForCtx;
+
     const retryCfg = node.retry
       ? {
           maxAttempts: node.retry.maxAttempts,
@@ -1144,4 +1184,183 @@ function extractUserId(triggerPayload: unknown): string | null {
     if (typeof nid === "string" && nid.length > 0) return nid;
   }
   return null;
+}
+
+/**
+ * Pull the `configurable` overrides bag out of the trigger payload, if
+ * the payload is an object that carries one. Returns `null` when the
+ * payload is not an object or has no `configurable` key — callers MUST
+ * treat that as "no overrides" (NOT an error). This is duck typing on
+ * top of the deliberately-unstructured `triggerPayload` field; see
+ * `TriggerPayloadWithConfigurable` in `@delightfulchorus/core`.
+ *
+ * Returning a typed but POSSIBLY-non-object value happens upstream:
+ * we deliberately re-narrow on each access because trigger payloads
+ * are user-supplied data and may carry anything in `configurable`.
+ */
+function extractConfigurableOverrides(
+  triggerPayload: unknown,
+): Record<string, unknown> | null {
+  if (!triggerPayload || typeof triggerPayload !== "object") return null;
+  const p = triggerPayload as Record<string, unknown>;
+  const overrides = p["configurable"];
+  if (!overrides || typeof overrides !== "object" || Array.isArray(overrides)) {
+    return null;
+  }
+  return overrides as Record<string, unknown>;
+}
+
+/**
+ * Result of resolving Wave 4 item 14 configurable overrides for a node.
+ *
+ *   merged: the FULL config view a handler should see, i.e. the union of
+ *     `node.config` (declared workflow defaults) and the resolved values
+ *     for every key declared in `node.configurable`. Override values from
+ *     the trigger payload land here at top precedence; declared field
+ *     defaults fill in any key the workflow author did not pin in
+ *     `node.config`. This is what we attach to `ctx.nodeConfig`.
+ *
+ *   resolvedDeclared: ONLY the resolved values for keys declared in
+ *     `node.configurable` (not the union). This is what we hash for the
+ *     memoization key — varying ANY declared field (regardless of whether
+ *     by override or fallback to default) must produce a different memo
+ *     row, but un-overridden non-declared `node.config` entries shouldn't
+ *     pollute the key.
+ *
+ *   activeOverrides: count of declared fields whose value came from the
+ *     trigger payload (precedence #1). Zero → no override applied; we
+ *     keep the legacy step name `node.id` unchanged. Non-zero → we
+ *     suffix the step name with `#cfg=<hash12>` so the audit trail
+ *     surfaces the variation AND the memo row is distinct.
+ */
+interface ConfigurableResolution {
+  merged: Record<string, unknown>;
+  resolvedDeclared: Record<string, unknown>;
+  activeOverrides: number;
+}
+
+/**
+ * Resolve Wave 4 item 14 configurable overrides for a single node.
+ * Precedence per declared field (`node.configurable[fieldName]`):
+ *
+ *   1. triggerPayload.configurable[fieldName]   (per-invocation override)
+ *   2. node.config[fieldName]                   (declared workflow default)
+ *   3. node.configurable[fieldName].default     (declared field default)
+ *
+ * Trigger payload override entries that don't correspond to a declared
+ * `node.configurable[k]` field are SILENTLY IGNORED for THIS node — the
+ * trigger payload may carry overrides intended for other nodes. There is
+ * no per-node validation of "unknown override key" because the payload's
+ * `configurable` map is workflow-wide; per-node strictness would require
+ * a global declaration we don't have.
+ *
+ * If a node has no `configurable` declaration at all, returns the raw
+ * `node.config` as `merged`, an empty `resolvedDeclared`, and zero
+ * `activeOverrides` — back-compat with all pre-Wave-4 nodes.
+ */
+function resolveConfigurable(
+  node: WorkflowNode,
+  triggerPayload: unknown,
+): ConfigurableResolution {
+  const declared = node.configurable ?? {};
+  const declaredKeys = Object.keys(declared);
+  const baseConfig = node.config ?? {};
+
+  // Fast path: no configurable declaration → return raw node.config.
+  // Avoids any allocation for the (overwhelming majority) of nodes that
+  // don't opt into configurable.
+  if (declaredKeys.length === 0) {
+    return {
+      merged: baseConfig,
+      resolvedDeclared: {},
+      activeOverrides: 0,
+    };
+  }
+
+  const overrides = extractConfigurableOverrides(triggerPayload);
+  const resolvedDeclared: Record<string, unknown> = {};
+  let activeOverrides = 0;
+
+  for (const k of declaredKeys) {
+    if (overrides && Object.prototype.hasOwnProperty.call(overrides, k)) {
+      resolvedDeclared[k] = overrides[k];
+      activeOverrides++;
+    } else if (Object.prototype.hasOwnProperty.call(baseConfig, k)) {
+      resolvedDeclared[k] = baseConfig[k];
+    } else {
+      // Field default — even `undefined` is a legal default per Zod's
+      // `z.unknown()`, so we always set the key (callers can detect
+      // "missing default + no override + no static" via key absence in
+      // baseConfig combined with the absence of an `overrides[k]` they
+      // controlled — but at the merged-view level we want the key to
+      // exist so handlers don't see undefined-vs-missing oddness).
+      resolvedDeclared[k] = declared[k]!.default;
+    }
+  }
+
+  // Build the merged view: start from node.config (so non-declared
+  // static keys flow through unchanged), then layer in the resolved
+  // declared values (which may have promoted overrides into the picture
+  // at top precedence).
+  const merged: Record<string, unknown> = { ...baseConfig, ...resolvedDeclared };
+
+  return { merged, resolvedDeclared, activeOverrides };
+}
+
+/**
+ * Stable JSON stringification for the configurable hash. We sort keys
+ * recursively so `{a:1,b:2}` and `{b:2,a:1}` produce the same digest;
+ * otherwise insertion order would silently fork the memo row even when
+ * the actual values match.
+ *
+ * Handles `undefined` by serializing it to the literal `null` (matching
+ * JSON.stringify({k: undefined}) → '{}' would *omit* it, which is
+ * worse — two declared fields where one is undefined would collide in
+ * the digest with one where neither is set). Symbols and functions are
+ * not expected in configurable values; if encountered, JSON.stringify's
+ * default behavior (skip) applies.
+ */
+function stableStringifyForHash(value: unknown): string {
+  if (value === undefined) return "null";
+  if (value === null) return "null";
+  if (typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return `[${value.map((v) => stableStringifyForHash(v)).join(",")}]`;
+  }
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  const inner = keys
+    .map((k) => `${JSON.stringify(k)}:${stableStringifyForHash(obj[k])}`)
+    .join(",");
+  return `{${inner}}`;
+}
+
+/**
+ * Hash the resolved-declared configurable map into a 12-char hex digest.
+ * Used to suffix the per-node memo key when overrides are active so
+ * different overrides produce different memo rows. 12 hex chars = 48
+ * bits = collision-safe for the realistic universe of overrides per
+ * workflow run.
+ */
+function hashConfigurable(resolvedDeclared: Record<string, unknown>): string {
+  return createHash("sha256")
+    .update(stableStringifyForHash(resolvedDeclared))
+    .digest("hex")
+    .slice(0, 12);
+}
+
+/**
+ * Compose the per-node memoization step name. When no overrides are
+ * active (the common case) we keep the legacy `node.id` so existing
+ * audit trails are unchanged. When ≥1 declared field was overridden
+ * (precedence #1 — trigger payload), suffix with `#cfg=<hash12>` so
+ * a re-run with a different override gets a distinct memo row AND
+ * the variation is visible in the steps table.
+ */
+export function configurableStepName(
+  nodeId: string,
+  resolution: ConfigurableResolution,
+): string {
+  if (resolution.activeOverrides === 0) return nodeId;
+  return `${nodeId}#cfg=${hashConfigurable(resolution.resolvedDeclared)}`;
 }
