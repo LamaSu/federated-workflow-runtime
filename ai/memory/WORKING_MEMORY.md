@@ -1,5 +1,52 @@
 # Chorus — Working Memory
 
+## Session 4: 2026-04-22T22:12-23:30Z — /go expansion build (Opal-gap item #8 + visual editor + cloud)
+
+**Task**: Ship Opal-gap-analysis proposed roadmap item #8 + expanded scope (visual editor CLI, cloud distribution).
+**Decomposition**: 7 leaf tasks, 3 waves, 6 implementers + 1 wheel-scout. All DONE.
+**Commit range**: `98af5d3` → `0f56012` on master. 57 files, +14,409 insertions.
+
+### Shipped
+
+1. **`chorus compose`** (bravo, 5 commits) — Vercel AI SDK `generateObject` + Zod WorkflowSchema + 250-line system prompt. Emits TypeScript per n8n-as-code insight. Ralph loop, 3 retries. 18 tests.
+2. **LLM integrations** (charlie, 2 commits) — `integrations/llm-anthropic`, `llm-openai`, `llm-gemini`. `generate` + `generateObject` ops. Typed credentials with deep links + pattern validation. Error mapping (401→Auth, 429→RateLimit, 5xx retryable). 91 tests.
+3. **`Connection.when?` + `step.memory`** (delta, 5 commits) — `jexl` for sandboxed expression eval; new `memory` SQLite table (per-workflow + optional per-user); `StepContext.memory.get/set` wrapped in `step.run`. Docs updated (ARCHITECTURE §4.3/§4.5 + CHANGELOG). 34 tests.
+4. **`agent` integration** (foxtrot, 4 commits) — `integrations/agent/plan-and-execute`. Ralph loop via AI SDK `generateText({ tools, maxSteps })`. Each iteration + tool call wrapped in `step.run("agent:iter-N", ...)` for durable replay. 39 tests.
+5. **`chorus ui --editor`** (golf, 4 commits) — Drawflow-based single-HTML canvas generator. Bidirectional Chorus↔Drawflow transform. Base template at `packages/cli/static/editor-template.html` (481 lines). Offline + live integration discovery. 27 tests.
+6. **Cloud distribution** (echo, 5 commits) — `docs/CLOUD_DISTRIBUTION.md` (315 lines) documents 3 models (template share MVP / hosted UI deferred / hosted runtime deferred). `chorus share <id> [--gist]` + `chorus import <url|file>` with catalog-aware credential redaction. 33 tests.
+
+**Aggregate**: 242 new tests. Per-agent suites all green; full-workspace verification running post-session.
+
+### Key decisions (from scout-alpha landscape `ai/research/landscape-chorus-expansion-2026-04-22.md`)
+
+- ADOPT Vercel AI SDK for tasks 2+3 (one abstraction, not three wrappers)
+- ADOPT Drawflow (CDN, MIT) over React Flow (needs build)
+- ADOPT Windmill credential-stripping pattern + GitHub Gist for cloud MVP
+- ADOPT `jexl` for when? evaluator
+- Emit TypeScript (not JSON) from `chorus compose`
+- Template-share MVP preserves local-first thesis; hosted-runtime deferred with explicit triggers
+
+### Merge conflicts resolved
+
+- `package-lock.json` (bravo vs HEAD) — kept HEAD, regenerated via `npm install`
+- `packages/cli/package.json` script externals (bravo vs echo) — merged both sets: `ai, @ai-sdk/anthropic, @octokit/rest`
+- `<<<<<<< HEAD` leftover at line 42 — cleaned in `b1733b0`
+
+### Worktrees remaining on disk (locked)
+
+worktree-agent-{a0f1e00f,a307e463,a5157d68,aca78892,a39823a2,a6a6a66b}. Clean up when confident in merged master.
+
+### Follow-ups (explicit, not in scope)
+
+- Auto-MCP per integration (ROADMAP #1) → turns LLM integrations + agent-step into first-class MCP tools
+- `chorus import` credential rebinding: tighten from `integration` match to `(integration, credentialType)` tuple
+- `credentialsFor` resolver in agent integration's loader (currently passes `null`)
+- Drawflow stale-risk (last commit Sep 2024) — fallback Litegraph.js documented in landscape
+- ROADMAP.md §8 insertion summarizing what shipped + future triggers
+- `git push lamasu master` (code not yet pushed upstream)
+
+---
+
 ## Session 3: 2026-04-14 — Typed credentials + auto-MCP + npm publication + event triggers
 
 ### Task
