@@ -4,10 +4,13 @@
  * Coverage: registry isolation, HOF form, top-level chorusStep helper,
  * auto-chain connections, explicit $.connect, schema validation,
  * duplicate-name + duplicate-id rejection, class-based @-decorator variant,
- * and round-trip (decorator → emit JSON → executor runs the emitted JSON →
- * matches direct invocation).
+ * round-trip (decorator → emit JSON → executor runs the emitted JSON →
+ * matches direct invocation), and the build-time emitWorkflows helper.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { WorkflowSchema } from "@delightfulchorus/core";
 import {
   chorusConnect,
@@ -16,6 +19,7 @@ import {
   chorusWorkflow,
   chorusWorkflowClass,
   clearRegistry,
+  emitWorkflows,
   getRegisteredWorkflows,
   type StepRef,
 } from "./decorators.js";
@@ -518,6 +522,220 @@ describe("round-trip: decorator → JSON → executor", () => {
       { from: "z", to: "y" },
       { from: "y", to: "x" },
     ]);
+  });
+});
+
+// ── emitWorkflows (build-time helper) ───────────────────────────────────────
+
+describe("emitWorkflows", () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(path.join(tmpdir(), "chorus-emit-test-"));
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it("imports each file and writes one JSON per registered workflow", async () => {
+    // Use a stub loader: tests don't need to spin up tsx — we synthesize
+    // registrations directly. The stub is invoked once per file in
+    // opts.files; on each call we register a workflow.
+    let calls = 0;
+    const result = await emitWorkflows({
+      files: ["fake-a.ts", "fake-b.ts"],
+      cwd: tmpDir,
+      silent: true,
+      loadFile: async (abs: string) => {
+        calls++;
+        const id = path.basename(abs, ".ts");
+        chorusWorkflow({ id, trigger: "manual" }, ($) => {
+          $.step("only", { integration: "noop", operation: "noop" });
+        });
+      },
+    });
+    expect(calls).toBe(2);
+    expect(result.emitted.map((e) => e.id)).toEqual(["fake-a", "fake-b"]);
+    // Files actually exist on disk and parse back to the same workflows.
+    for (const e of result.emitted) {
+      const content = await readFile(e.filePath, "utf8");
+      const parsed = WorkflowSchema.parse(JSON.parse(content));
+      expect(parsed.id).toBe(e.id);
+      expect(parsed.nodes).toHaveLength(1);
+    }
+  });
+
+  it("clears the registry before importing (default)", async () => {
+    // Pre-populate the registry with a workflow that should NOT appear in
+    // the output (because emitWorkflows should clear it first).
+    chorusWorkflow({ id: "should-not-emit", trigger: "manual" }, ($) => {
+      $.step("a", { integration: "noop", operation: "noop" });
+    });
+    expect(getRegisteredWorkflows()).toHaveLength(1);
+
+    const result = await emitWorkflows({
+      files: ["new.ts"],
+      cwd: tmpDir,
+      silent: true,
+      loadFile: async () => {
+        chorusWorkflow({ id: "actually-emitted", trigger: "manual" }, ($) => {
+          $.step("a", { integration: "noop", operation: "noop" });
+        });
+      },
+    });
+    expect(result.emitted.map((e) => e.id)).toEqual(["actually-emitted"]);
+  });
+
+  it("preserves pre-existing registrations when clearBefore=false", async () => {
+    chorusWorkflow({ id: "pre-1", trigger: "manual" }, ($) => {
+      $.step("a", { integration: "noop", operation: "noop" });
+    });
+    const result = await emitWorkflows({
+      files: ["another.ts"],
+      cwd: tmpDir,
+      clearBefore: false,
+      silent: true,
+      loadFile: async () => {
+        chorusWorkflow({ id: "pre-2", trigger: "manual" }, ($) => {
+          $.step("b", { integration: "noop", operation: "noop" });
+        });
+      },
+    });
+    expect(result.emitted.map((e) => e.id)).toEqual(["pre-1", "pre-2"]);
+  });
+
+  it("writes JSON to a custom outDir (relative to cwd)", async () => {
+    const result = await emitWorkflows({
+      files: ["x.ts"],
+      cwd: tmpDir,
+      outDir: "build/wfs",
+      silent: true,
+      loadFile: async () => {
+        chorusWorkflow({ id: "wfx", trigger: "manual" }, ($) => {
+          $.step("a", { integration: "noop", operation: "noop" });
+        });
+      },
+    });
+    expect(result.outDir).toBe(path.join(tmpDir, "build/wfs"));
+    expect(result.emitted[0]?.filePath).toBe(
+      path.join(tmpDir, "build/wfs", "wfx.json"),
+    );
+    const content = await readFile(result.emitted[0]!.filePath, "utf8");
+    expect(JSON.parse(content).id).toBe("wfx");
+  });
+
+  it("supports absolute outDir paths", async () => {
+    const absOut = path.join(tmpDir, "abs-out");
+    const result = await emitWorkflows({
+      files: ["x.ts"],
+      cwd: tmpDir,
+      outDir: absOut,
+      silent: true,
+      loadFile: async () => {
+        chorusWorkflow({ id: "abs-wf", trigger: "manual" }, ($) => {
+          $.step("a", { integration: "noop", operation: "noop" });
+        });
+      },
+    });
+    expect(result.outDir).toBe(absOut);
+  });
+
+  it("handles a multi-workflow file (one file emits multiple JSON files)", async () => {
+    const result = await emitWorkflows({
+      files: ["multi.ts"],
+      cwd: tmpDir,
+      silent: true,
+      loadFile: async () => {
+        chorusWorkflow({ id: "multi-1", trigger: "manual" }, ($) => {
+          $.step("a", { integration: "noop", operation: "noop" });
+        });
+        chorusWorkflow({ id: "multi-2", trigger: "manual" }, ($) => {
+          $.step("b", { integration: "noop", operation: "noop" });
+        });
+        chorusWorkflow({ id: "multi-3", trigger: "manual" }, ($) => {
+          $.step("c", { integration: "noop", operation: "noop" });
+        });
+      },
+    });
+    expect(result.emitted.map((e) => e.id)).toEqual([
+      "multi-1",
+      "multi-2",
+      "multi-3",
+    ]);
+    // All three files exist on disk
+    for (const e of result.emitted) {
+      const content = await readFile(e.filePath, "utf8");
+      expect(JSON.parse(content).id).toBe(e.id);
+    }
+  });
+
+  it("rejects an empty files list", async () => {
+    await expect(
+      emitWorkflows({ files: [], cwd: tmpDir, silent: true }),
+    ).rejects.toThrow(/no files supplied/);
+  });
+
+  it("returns empty emitted array when imported files register nothing", async () => {
+    const result = await emitWorkflows({
+      files: ["noop.ts"],
+      cwd: tmpDir,
+      silent: true,
+      loadFile: async () => {
+        // No registration calls
+      },
+    });
+    expect(result.emitted).toEqual([]);
+    expect(result.importedFiles).toHaveLength(1);
+  });
+
+  it("propagates errors from loadFile (e.g. user-thrown registration error)", async () => {
+    await expect(
+      emitWorkflows({
+        files: ["bad.ts"],
+        cwd: tmpDir,
+        silent: true,
+        loadFile: async () => {
+          throw new Error("import failed: syntax error");
+        },
+      }),
+    ).rejects.toThrow(/import failed: syntax error/);
+  });
+
+  it("written JSON parses cleanly with WorkflowSchema and is byte-identical to in-memory", async () => {
+    let captured: ReturnType<typeof chorusWorkflow> | undefined;
+    const result = await emitWorkflows({
+      files: ["x.ts"],
+      cwd: tmpDir,
+      silent: true,
+      loadFile: async () => {
+        captured = chorusWorkflow(
+          {
+            id: "byte-rt",
+            name: "Byte Round-Trip",
+            trigger: { type: "cron", expression: "0 0 * * *", timezone: "UTC" },
+            createdAt: "2026-04-23T00:00:00.000Z",
+            updatedAt: "2026-04-23T00:00:00.000Z",
+          },
+          ($) => {
+            $.step("a", {
+              integration: "http-generic",
+              operation: "request",
+              config: { url: "https://example.com" },
+            });
+            $.step("b", {
+              integration: "noop",
+              operation: "noop",
+              inputs: { x: "{{a.output}}" },
+            });
+          },
+        );
+      },
+    });
+    const filePath = result.emitted[0]!.filePath;
+    const content = await readFile(filePath, "utf8");
+    const reparsed = WorkflowSchema.parse(JSON.parse(content));
+    expect(reparsed).toEqual(captured);
   });
 });
 

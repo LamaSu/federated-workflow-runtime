@@ -587,6 +587,171 @@ export function chorusWorkflowClass(meta: ChorusWorkflowMeta) {
   };
 }
 
+// ── Build-time emitter (chorus emit-workflows) ───────────────────────────────
+
+/**
+ * Options for `emitWorkflows` — the build-time helper that drains the
+ * registry and writes one JSON file per workflow.
+ */
+export interface EmitWorkflowsOptions {
+  /**
+   * Files to import. Each file's `import()` side-effects (i.e. its
+   * `chorusWorkflow(...)` calls at module load) populate the registry.
+   *
+   * Resolved relative to `cwd`. Absolute paths are supported and used
+   * verbatim. Files MUST exist; missing files throw.
+   *
+   * For "glob" support, the CLI subcommand expands a glob pattern into
+   * a file list and passes it here.
+   */
+  files: string[];
+  /**
+   * Output directory for emitted JSON files. Defaults to
+   * `<cwd>/chorus/workflows`. Created (recursively) if missing.
+   */
+  outDir?: string;
+  /** Process cwd. Defaults to `process.cwd()`. */
+  cwd?: string;
+  /**
+   * If true, the registry is cleared BEFORE imports. Default `true` —
+   * gives a clean slate per emit run. Set to `false` if you want to
+   * accumulate registrations from multiple emit calls (rare).
+   */
+  clearBefore?: boolean;
+  /**
+   * Indent for JSON output. Defaults to 2 (matches `chorus compose`'s
+   * style). Pass 0 for minified output.
+   */
+  jsonIndent?: number;
+  /** Suppress console output. Tests set this to true. */
+  silent?: boolean;
+  /**
+   * Optional file-loader override for tests. Defaults to native dynamic
+   * `import()`. Tests pass a stub that lets them inject workflows
+   * synchronously without spinning up tsx.
+   */
+  loadFile?: (absPath: string) => Promise<void>;
+}
+
+export interface EmittedWorkflow {
+  /** Absolute path of the emitted JSON file. */
+  filePath: string;
+  /** Workflow id (also the JSON file's basename). */
+  id: string;
+}
+
+export interface EmitWorkflowsResult {
+  /** Files imported. */
+  importedFiles: string[];
+  /** Workflows emitted, in registry insertion order. */
+  emitted: EmittedWorkflow[];
+  /** outDir actually used (resolved against cwd). */
+  outDir: string;
+}
+
+/**
+ * Build-time helper. Imports each file in `opts.files` (so its
+ * `chorusWorkflow(...)` registrations fire), drains the registry, and
+ * writes one `<id>.json` per workflow into `opts.outDir`.
+ *
+ * Imports use native dynamic `import()`. If your `.ts` source files need
+ * a TypeScript loader (most projects do), invoke this from a context
+ * where `tsx` or `ts-node` is on the loader chain — e.g. via the
+ * `chorus emit-workflows` CLI subcommand which boots through tsx.
+ *
+ * For `.js` / `.mjs` files this works without any loader.
+ *
+ * Symlink + path semantics: `import()` accepts a `file://` URL OR a
+ * bare module specifier. We always wrap absolute paths in `pathToFileURL`
+ * so Windows backslashes don't trip ESM resolution.
+ *
+ * Idempotency: when `clearBefore` is true (the default), the registry is
+ * reset before imports so a second invocation in the same process gives
+ * the same result as a first invocation.
+ */
+export async function emitWorkflows(
+  opts: EmitWorkflowsOptions,
+): Promise<EmitWorkflowsResult> {
+  const { writeFile, mkdir } = await import("node:fs/promises");
+  const path = await import("node:path");
+  const { pathToFileURL } = await import("node:url");
+
+  const cwd = opts.cwd ?? process.cwd();
+  const outDir = opts.outDir
+    ? path.isAbsolute(opts.outDir)
+      ? opts.outDir
+      : path.join(cwd, opts.outDir)
+    : path.join(cwd, "chorus", "workflows");
+  const indent = opts.jsonIndent ?? 2;
+  const silent = opts.silent ?? false;
+  const clearBefore = opts.clearBefore ?? true;
+
+  if (!Array.isArray(opts.files) || opts.files.length === 0) {
+    throw new Error(
+      "emitWorkflows: no files supplied — pass at least one .ts/.js/.mjs file in opts.files",
+    );
+  }
+
+  if (clearBefore) {
+    clearRegistry();
+  }
+
+  const loadFile =
+    opts.loadFile ??
+    (async (absPath: string) => {
+      // Native dynamic import. Wrap in pathToFileURL so Windows path
+      // separators don't break ESM resolution. Add a cache-buster query
+      // string so a second emitWorkflows call in the same process re-runs
+      // the module's top-level (otherwise the registry would stay empty
+      // because the module was cached on first import).
+      const url = `${pathToFileURL(absPath).href}?ts=${Date.now()}`;
+      await import(url);
+    });
+
+  const importedFiles: string[] = [];
+  for (const f of opts.files) {
+    const abs = path.isAbsolute(f) ? f : path.resolve(cwd, f);
+    await loadFile(abs);
+    importedFiles.push(abs);
+  }
+
+  const workflows = getRegisteredWorkflows();
+  if (workflows.length === 0) {
+    if (!silent) {
+      const stderr = process.stderr.write.bind(process.stderr);
+      stderr(
+        `emitWorkflows: imported ${importedFiles.length} file(s), but no workflows were registered. ` +
+          `Make sure each file calls chorusWorkflow(...) at module top level.\n`,
+      );
+    }
+    return { importedFiles, emitted: [], outDir };
+  }
+
+  await mkdir(outDir, { recursive: true });
+
+  const emitted: EmittedWorkflow[] = [];
+  for (const wf of workflows) {
+    const filePath = path.join(outDir, `${wf.id}.json`);
+    const content = JSON.stringify(wf, null, indent) + "\n";
+    await writeFile(filePath, content, "utf8");
+    emitted.push({ filePath, id: wf.id });
+  }
+
+  if (!silent) {
+    const stdout = process.stdout.write.bind(process.stdout);
+    stdout(
+      `emitWorkflows: wrote ${emitted.length} workflow(s) to ${outDir}\n`,
+    );
+    for (const e of emitted) {
+      stdout(`  ${e.id} -> ${e.filePath}\n`);
+    }
+  }
+
+  return { importedFiles, emitted, outDir };
+}
+
+// ── Class-based @-decorator variant continued ────────────────────────────────
+
 /**
  * TC39 Stage 3 class field decorator (auto-accessor form). Marks an accessor
  * field as a chorus step. The class decorator (`@chorusWorkflowClass`)
