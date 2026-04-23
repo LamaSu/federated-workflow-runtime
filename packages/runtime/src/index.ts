@@ -98,6 +98,22 @@ export {
 } from "./schema-validate.js";
 
 export {
+  ForkRunError,
+  applyMutationsToNode,
+  decodeStepRow,
+  fnv1a32,
+  forkRun,
+  getRunHistory,
+  getRunOverview,
+  parsePath,
+  setAtPath,
+  type ForkRunOptions,
+  type ForkRunResult,
+  type Mutations,
+  type RunHistoryEntry,
+} from "./fork-run.js";
+
+export {
   EventDispatcher,
   TIMEOUT_EVENT_ID,
   eventMatches,
