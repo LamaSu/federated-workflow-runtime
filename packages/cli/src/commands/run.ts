@@ -28,6 +28,19 @@ export interface RunOptions {
   dryRun?: boolean;
   /** Tail mode: pretty-print step output. Default true when attached to TTY. */
   follow?: boolean;
+  /**
+   * Wave 3 worknet — opt-in to mounting POST /api/run + GET /api/run/:id/status
+   * so external chorus instances can invoke this instance's workflows.
+   * Default OFF; the CLI flag is `--remote-callable`.
+   */
+  remoteCallable?: boolean;
+  /**
+   * Optional Ed25519 pubkey allowlist (base64) — only callers in this
+   * list may invoke remote workflows. Without this list, any caller whose
+   * signature verifies is accepted. Repeatable: `--accepted-caller a
+   * --accepted-caller b`.
+   */
+  acceptedCallers?: string[];
 }
 
 export interface RunBootstrap {
@@ -142,6 +155,28 @@ export async function runRun(opts: RunOptions = {}): Promise<number> {
     }
   };
 
+  // Wave 3 — surface the worknet flag to the operator at boot so it's
+  // unmistakably visible (this is the one /api/* surface that accepts
+  // workflow invocations from external operators).
+  if (opts.remoteCallable) {
+    p(
+      `${pc.yellow("◆")} ${pc.bold("--remote-callable")} active — POST /api/run accepts external invocations\n`,
+    );
+    if (opts.acceptedCallers && opts.acceptedCallers.length > 0) {
+      p(
+        `   ${pc.dim("acceptedCallers:")} ${opts.acceptedCallers.length} pubkey(s) allowlisted\n`,
+      );
+    } else {
+      p(
+        `   ${pc.dim("acceptedCallers:")} <any signed caller> ${pc.dim("(restrict via --accepted-caller <pubkey>)")}\n`,
+      );
+    }
+  }
+
+  const remoteCallableOpts = opts.remoteCallable
+    ? { acceptedCallers: opts.acceptedCallers ?? [] }
+    : undefined;
+
   try {
     if (runtime.startServer) {
       await runtime.startServer({
@@ -150,6 +185,7 @@ export async function runRun(opts: RunOptions = {}): Promise<number> {
         targetWorkflow: opts.target,
         signal: abort.signal,
         onListen,
+        ...(remoteCallableOpts ? { remoteCallable: remoteCallableOpts } : {}),
       });
     } else if (runtime.startRuntime) {
       await runtime.startRuntime({
@@ -158,6 +194,7 @@ export async function runRun(opts: RunOptions = {}): Promise<number> {
         targetWorkflow: opts.target,
         signal: abort.signal,
         onListen,
+        ...(remoteCallableOpts ? { remoteCallable: remoteCallableOpts } : {}),
       });
     } else {
       p(`${pc.red("✗")} @delightfulchorus/runtime exports neither startServer nor startRuntime\n`);
@@ -216,6 +253,7 @@ interface RuntimeModule {
     targetWorkflow?: string;
     signal: AbortSignal;
     onListen?: (url: string) => void;
+    remoteCallable?: { acceptedCallers?: string[]; timestampSkewMs?: number };
   }) => Promise<void>;
   startRuntime?: (opts: {
     config: ChorusConfig;
@@ -223,6 +261,7 @@ interface RuntimeModule {
     targetWorkflow?: string;
     signal: AbortSignal;
     onListen?: (url: string) => void;
+    remoteCallable?: { acceptedCallers?: string[]; timestampSkewMs?: number };
   }) => Promise<void>;
 }
 

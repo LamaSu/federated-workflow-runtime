@@ -1,25 +1,23 @@
 {
-  "name": "@delightfulchorus/runtime",
+  "name": "@delightfulchorus/integration-remote-workflow",
   "version": "0.1.9",
-  "description": "Workflow execution engine: cron, webhooks, retries, SQLite state",
+  "description": "Worknet — invoke a workflow on a remote chorus instance as a single memoized step. Signed Ed25519 calls, mandatory hash pinning, optional reputation/OIDC/allowlist gates. Companion to integration-workflow (local subgraphs).",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
     "dist",
-    "src/sandbox-worker.cjs",
     "README.md"
   ],
   "keywords": [
     "chorus",
-    "workflow",
-    "runtime",
-    "automation",
-    "cron",
-    "webhooks",
-    "sqlite",
-    "fastify",
-    "agent",
+    "chorus-integration",
+    "worknet",
+    "remote-workflow",
+    "federated",
+    "subgraph",
+    "composition",
+    "integration",
     "n8n-alternative"
   ],
   "author": "Chorus contributors",
@@ -27,7 +25,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/LamaSu/federated-workflow-runtime.git",
-    "directory": "packages/runtime"
+    "directory": "integrations/remote-workflow"
   },
   "bugs": {
     "url": "https://github.com/LamaSu/federated-workflow-runtime/issues"
@@ -39,26 +37,18 @@
     "provenance": true
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts --clean && node -e \"require('fs').copyFileSync('src/sandbox-worker.cjs', 'dist/sandbox-worker.cjs')\"",
+    "build": "tsup src/index.ts --format esm --dts --clean",
     "test": "vitest run",
-    "dev": "tsx watch src/server.ts",
     "prepublishOnly": "npm run build && npm test"
   },
   "dependencies": {
     "@delightfulchorus/core": "*",
-    "@delightfulchorus/registry": "*",
-    "@noble/ed25519": "^2.1.0",
-    "@noble/hashes": "^1.5.0",
-    "better-sqlite3": "^11.3.0",
-    "cron-parser": "^4.9.0",
-    "fastify": "^5.0.0",
-    "jexl": "^2.3.0",
-    "yaml": "^2.4.0",
+    "@delightfulchorus/runtime": "*",
     "zod": "^3.23.0"
   },
   "devDependencies": {
-    "@delightfulchorus/integration-workflow": "*",
-    "@types/better-sqlite3": "^7.6.11",
-    "tsx": "^4.19.0"
+    "@delightfulchorus/registry": "*",
+    "@noble/ed25519": "^2.1.0",
+    "@noble/hashes": "^1.5.0"
   }
 }
