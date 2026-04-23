@@ -39,7 +39,8 @@
     "provenance": true
   },
   "scripts": {
-    "build": "tsup src/cli.ts --format esm --dts --clean --external @delightfulchorus/core --external @delightfulchorus/registry --external @delightfulchorus/reporter --external @delightfulchorus/repair-agent --external @delightfulchorus/runtime --external @delightfulchorus/mcp --external ai --external @ai-sdk/anthropic",
+<<<<<<< HEAD
+    "build": "tsup src/cli.ts --format esm --dts --clean --external @delightfulchorus/core --external @delightfulchorus/registry --external @delightfulchorus/reporter --external @delightfulchorus/repair-agent --external @delightfulchorus/runtime --external @delightfulchorus/mcp --external ai --external @ai-sdk/anthropic --external @octokit/rest",
     "test": "vitest run",
     "cli": "tsx src/cli.ts",
     "prepublishOnly": "npm run build && npm test"
@@ -56,6 +57,9 @@
     "commander": "^12.1.0",
     "picocolors": "^1.1.0",
     "zod": "^3.23.0"
+  },
+  "optionalDependencies": {
+    "@octokit/rest": "^21.0.0"
   },
   "devDependencies": {
     "tsx": "^4.19.0"

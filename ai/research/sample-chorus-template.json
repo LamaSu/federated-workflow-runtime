@@ -1,0 +1,46 @@
+{
+  "$schema": "https://chorus.dev/schemas/chorus-template/v1.json",
+  "schemaVersion": 1,
+  "workflow": {
+    "id": "sample-notifier",
+    "name": "Sample — webhook → Slack notification",
+    "version": 1,
+    "active": true,
+    "trigger": {
+      "type": "webhook",
+      "path": "/hooks/sample",
+      "method": "POST"
+    },
+    "nodes": [
+      {
+        "id": "announce",
+        "integration": "slack-send",
+        "operation": "postMessage",
+        "config": {
+          "accessToken": {
+            "__credentialRef": true,
+            "integration": "slack-send",
+            "credentialType": "slackUserToken",
+            "fieldName": "accessToken",
+            "hint": "Rebind on import: run `chorus credentials add slack-send` and link the resulting credential to this reference."
+          },
+          "channel": "#general",
+          "text": "New webhook received — demo template",
+          "threadTs": null
+        },
+        "onError": "retry"
+      }
+    ],
+    "connections": [],
+    "createdAt": "2026-04-22T00:00:00.000Z",
+    "updatedAt": "2026-04-22T00:00:00.000Z"
+  },
+  "exportedAt": "2026-04-22T00:00:00.000Z",
+  "requiredCredentials": [
+    {
+      "integration": "slack-send",
+      "credentialType": "slackUserToken",
+      "sites": 1
+    }
+  ]
+}
