@@ -23,6 +23,7 @@ import pc from "picocolors";
 import { runInit } from "./commands/init.js";
 import { runRun } from "./commands/run.js";
 import { runRunHistory, runRunReplay } from "./commands/run-history.js";
+import { runStream } from "./commands/stream.js";
 import { runReport } from "./commands/report.js";
 import { runValidate } from "./commands/validate.js";
 import { runUi } from "./commands/ui.js";
@@ -185,6 +186,35 @@ export function buildProgram(): Command {
           fromStep: opts.from,
           mutates: opts.mutate,
           json: opts.json,
+        });
+        process.exit(code);
+      },
+    );
+
+  // ── stream (Wave 4 item 12) ───────────────────────────────────────────────
+  // chorus stream <runId> --mode <m> — tail the SSE stream of a live run.
+  // Modes: values, updates, messages, tasks (CSV joined). Default = updates
+  // (backfills existing rows + streams future). Output is JSONL by
+  // default; --pretty switches to colored human view. Requires a running
+  // chorus run server.
+  program
+    .command("stream <runId>")
+    .description("tail the SSE stream of a live run (values/updates/messages/tasks)")
+    .option(
+      "--mode <csv>",
+      "comma-separated mode list (values,updates,messages,tasks)",
+      "updates",
+    )
+    .option("--pretty", "human-readable colored output instead of JSONL")
+    .action(
+      async (
+        runId: string,
+        opts: { mode?: string; pretty?: boolean },
+      ) => {
+        const code = await runStream({
+          runId,
+          mode: opts.mode,
+          pretty: opts.pretty,
         });
         process.exit(code);
       },
